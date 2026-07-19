@@ -1,0 +1,16 @@
+## Interface: 11508
+## Title: PetTips
+## Notes: Hunter pet training overview: what your pet can learn now and later, from trainers or by taming.
+## Author: Entrail09
+## Version: 1.0.0
+## SavedVariables: PetTipsDB
+## SavedVariablesPerCharacter: PetTipsCharDB
+
+Core.lua
+Data\Vanilla\FamilyData.lua
+Data\Vanilla\PetAbilitiesData.lua
+Data\Vanilla\TameMobsData.lua
+KnownTraining.lua
+TrainingList.lua
+BeastTooltips.lua
+Options.lua
