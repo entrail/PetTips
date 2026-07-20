@@ -129,6 +129,50 @@ function ns.GetPlayerZoneKeys()
     return keys
 end
 
+-- Localized mob names: the data ships English names (Petopia has no
+-- translations), but the server knows the localized name of every
+-- creature - a creature query through a unit tooltip hyperlink returns
+-- it. The query is async: the first lookup may come back empty (English
+-- fallback is shown), the reply is cached account-wide per locale in
+-- PetTipsDB.mobNames, so names fill in as tooltips are shown. English
+-- clients skip all of this - the data already matches the server.
+local wantMobNames = GetLocale() ~= "enUS" and GetLocale() ~= "enGB"
+local scanTip
+local function QueryMobName(npcId)
+    local link = string.format("unit:Creature-0-0-0-0-%d-0000000000", npcId)
+    if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+        local data = C_TooltipInfo.GetHyperlink(link)
+        local line = data and data.lines and data.lines[1]
+        return line and line.leftText
+    end
+    if not scanTip then
+        scanTip = CreateFrame("GameTooltip", "PetTipsScanTooltip", nil, "GameTooltipTemplate")
+    end
+    scanTip:SetOwner(WorldFrame, "ANCHOR_NONE")
+    scanTip:SetHyperlink(link)
+    local left = _G["PetTipsScanTooltipTextLeft1"]
+    return left and left:GetText()
+end
+
+function ns.GetMobName(m)
+    if not wantMobNames or not ns.db then return m.name end
+    local cache = ns.db.mobNames
+    if not cache or cache.locale ~= GetLocale() then
+        cache = { locale = GetLocale() }
+        ns.db.mobNames = cache
+    end
+    local name = cache[m.npc]
+    if not name then
+        name = QueryMobName(m.npc)
+        if name and name ~= "" and name ~= UNKNOWN then
+            cache[m.npc] = name
+        else
+            return m.name
+        end
+    end
+    return name
+end
+
 -- ns.OnInit(fn) -> runs at ADDON_LOADED, after ns.db/ns.chardb are ready.
 -- ns.OnLogin(fn) -> runs at PLAYER_LOGIN, when player info is reliable.
 local initCallbacks, loginCallbacks = {}, {}

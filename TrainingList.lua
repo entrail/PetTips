@@ -290,10 +290,10 @@ function ns.ShowRankTooltip(entry, owner)
                 local lvl = (m.minLevel == m.maxLevel) and tostring(m.minLevel)
                     or (m.minLevel .. "-" .. m.maxLevel)
                 if inZone(m) then
-                    GameTooltip:AddLine(string.format("%s  (%s, %s)", m.name, ns.GetMobZoneText(m), lvl),
+                    GameTooltip:AddLine(string.format("%s  (%s, %s)", ns.GetMobName(m), ns.GetMobZoneText(m), lvl),
                         0.2, 1.0, 0.2)
                 else
-                    GameTooltip:AddLine(string.format("%s  (%s, %s)", m.name, ns.GetMobZoneText(m), lvl),
+                    GameTooltip:AddLine(string.format("%s  (%s, %s)", ns.GetMobName(m), ns.GetMobZoneText(m), lvl),
                         0.8, 0.8, 0.8)
                 end
             end

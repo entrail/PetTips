@@ -76,13 +76,15 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
 - Hunter-only by design — completely inert on other classes.
 - Ability, family and zone matching is ID-based and works on every client
   language — zone names display localized and the in-zone highlight works
-  on all locales. Mob names are currently English.
+  on all locales. Mob names are localized live from the game server and
+  remembered; until a name's first reply arrives it shows in English.
 
 ## Limitations & Roadmap
 
-- **Mob names are English** for now — Petopia has no translations, and
-  the client can't resolve creature names by npc ID without seeing the
-  mob first.
+- The addon's own labels and messages are translated for **German,
+  French, Spanish (EU and Latin America) and Brazilian Portuguese**;
+  other locales see English. Corrections from native speakers are very
+  welcome!
 - **Clickable mob browser** (a window per ability instead of the tooltip
   list) is planned; the data is already in place.
 - **TBC support** is prepared in the data layout but not built yet.
