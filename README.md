@@ -74,14 +74,15 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
 - Plays nice with **WhatsTraining**: the tabs share the spellbook edge
   without overlapping, and opening one view closes the other.
 - Hunter-only by design — completely inert on other classes.
-- Ability and family matching is ID-based and works on every client
-  language; mob and zone names are currently English (the in-zone
-  highlight needs an English client).
+- Ability, family and zone matching is ID-based and works on every client
+  language — zone names display localized and the in-zone highlight works
+  on all locales. Mob names are currently English.
 
 ## Limitations & Roadmap
 
-- **Zone names are English** for now — planned fix: map-ID based matching,
-  which is also the groundwork for showing tame targets on the world map.
+- **Mob names are English** for now — Petopia has no translations, and
+  the client can't resolve creature names by npc ID without seeing the
+  mob first.
 - **Clickable mob browser** (a window per ability instead of the tooltip
   list) is planned; the data is already in place.
 - **TBC support** is prepared in the data layout but not built yet.

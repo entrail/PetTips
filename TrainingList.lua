@@ -267,11 +267,15 @@ function ns.ShowRankTooltip(entry, owner)
         if mobs then
             GameTooltip:AddLine(L["Learn by taming, then let the pet use it:"], 0.6, 0.9, 0.6, true)
             -- mobs in the zone the player is standing in come first, in
-            -- green (zone names in the data are English - the comparison
-            -- only matches on English clients, see AGENTS.md)
-            local currentZone = strlower(GetRealZoneText() or "")
+            -- green (matched by zone ID, so it works on every locale)
+            local zoneKeys = ns.GetPlayerZoneKeys()
             local function inZone(m)
-                return currentZone ~= "" and strlower(m.zone):find(currentZone, 1, true) ~= nil
+                if m.zoneIds then
+                    for _, id in ipairs(m.zoneIds) do
+                        if zoneKeys[id] then return true end
+                    end
+                end
+                return false
             end
             local sorted = {}
             for i, m in ipairs(mobs) do sorted[i] = m end
@@ -286,10 +290,10 @@ function ns.ShowRankTooltip(entry, owner)
                 local lvl = (m.minLevel == m.maxLevel) and tostring(m.minLevel)
                     or (m.minLevel .. "-" .. m.maxLevel)
                 if inZone(m) then
-                    GameTooltip:AddLine(string.format("%s  (%s, %s)", m.name, m.zone, lvl),
+                    GameTooltip:AddLine(string.format("%s  (%s, %s)", m.name, ns.GetMobZoneText(m), lvl),
                         0.2, 1.0, 0.2)
                 else
-                    GameTooltip:AddLine(string.format("%s  (%s, %s)", m.name, m.zone, lvl),
+                    GameTooltip:AddLine(string.format("%s  (%s, %s)", m.name, ns.GetMobZoneText(m), lvl),
                         0.8, 0.8, 0.8)
                 end
             end

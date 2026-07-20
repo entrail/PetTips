@@ -63,11 +63,11 @@ function ns.NewTameMobDB()
     local mobs, bySpell = {}, {}
     ns.TAME_MOBS = mobs
     ns.MOBS_BY_SPELL = bySpell
-    return function(npcId, name, familyId, minLevel, maxLevel, zone, teaches)
+    return function(npcId, name, familyId, minLevel, maxLevel, zone, zoneIds, teaches)
         local m = {
             npc = npcId, name = name, family = familyId,
             minLevel = minLevel, maxLevel = maxLevel, zone = zone,
-            teaches = teaches,
+            zoneIds = zoneIds, teaches = teaches,
         }
         mobs[npcId] = m
         for _, spellId in ipairs(teaches) do
@@ -76,6 +76,57 @@ function ns.NewTameMobDB()
             list[#list + 1] = m
         end
     end
+end
+
+-- Zone IDs in the mob data are locale-safe: positive = uiMapID of an
+-- outdoor zone, negative = -instanceMapID of a dungeon/raid.
+
+-- Localized name for one zone ID (nil if the client can't resolve it).
+function ns.GetZoneName(zoneId)
+    if zoneId < 0 then
+        local name = GetRealZoneText(-zoneId)
+        if name and name ~= "" then return name end
+    else
+        local info = C_Map.GetMapInfo(zoneId)
+        if info and info.name then return info.name end
+    end
+    return nil
+end
+
+-- Localized "Zone A; Zone B" display string for a mob; falls back to the
+-- English string from the data if any ID fails to resolve.
+function ns.GetMobZoneText(m)
+    local ids = m.zoneIds
+    if ids and #ids > 0 then
+        local names = {}
+        for i, id in ipairs(ids) do
+            names[i] = ns.GetZoneName(id)
+            if not names[i] then return m.zone end
+        end
+        return table.concat(names, "; ")
+    end
+    return m.zone
+end
+
+-- Set of zone IDs the player is in right now: -instanceMapID inside a
+-- dungeon/raid, otherwise the player's uiMapID plus parents up to (not
+-- including) the continent - matches mob zoneIds on every client locale.
+function ns.GetPlayerZoneKeys()
+    local keys = {}
+    if IsInInstance() then
+        local instanceId = select(8, GetInstanceInfo())
+        if instanceId then keys[-instanceId] = true end
+    else
+        local mapId = C_Map.GetBestMapForUnit("player")
+        for _ = 1, 10 do -- guard against parent cycles
+            if not mapId or mapId <= 0 then break end
+            local info = C_Map.GetMapInfo(mapId)
+            if not info or (info.mapType and info.mapType <= 2) then break end
+            keys[mapId] = true
+            mapId = info.parentMapID
+        end
+    end
+    return keys
 end
 
 -- ns.OnInit(fn) -> runs at ADDON_LOADED, after ns.db/ns.chardb are ready.

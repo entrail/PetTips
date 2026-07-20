@@ -2,7 +2,7 @@
 ## Title: PetTips
 ## Notes: Hunter pet training overview: what your pet can learn now and later, from trainers or by taming.
 ## Author: Entrail09
-## Version: 1.0.2
+## Version: 1.0.3
 ## SavedVariables: PetTipsDB
 ## SavedVariablesPerCharacter: PetTipsCharDB
 
