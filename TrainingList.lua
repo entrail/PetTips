@@ -25,7 +25,6 @@ local COLORS = {
     fromPet   = { 0.40, 0.75, 1.00 },
     gated     = { 1.00, 1.00, 1.00 },
     notKnown  = { 1.00, 0.45, 0.35 },
-    other     = { 0.70, 0.55, 0.90 },
     known     = { 0.55, 0.55, 0.55 },
     note      = { 0.80, 0.80, 0.80 },
     tag       = { 0.65, 0.65, 0.65 },
@@ -36,6 +35,28 @@ local rows = {} -- row pool inside scrollContent, grows as needed
 local displayList = {}
 local searchFilter = "" -- lowercased text of the search box
 local sourceFilter = { taming = true, trainer = true } -- both on by default
+
+-- US-13 family selector: nil = default (current pet, or all families
+-- without a pet), "all" = all families, number = a specific family ID.
+-- Lives only while the view is open (reset on hide and on pet change).
+local familySelection = nil
+
+-- effective family for the list: returns famId (nil = all families) and
+-- whether we are BROWSING a family other than the actual pet's (then
+-- pet level/points don't apply - a future pet can be up to hunter level)
+local function EffectiveFamily()
+    local curFam = ns.GetPetFamilyId()
+    if familySelection == "all" then return nil, curFam ~= nil end
+    if familySelection then
+        return familySelection, familySelection ~= curFam
+    end
+    return curFam, false
+end
+
+local function SetFamilySelection(sel)
+    familySelection = sel
+    ns.RefreshTrainingList()
+end
 
 -- ---------------------------------------------------------------- data
 
@@ -59,7 +80,9 @@ end
 -- the pet meets it, orange while only the hunter does (pet just has to
 -- catch up), red when even the hunter is below the requirement.
 local function LevelText(entry)
-    local petLevel = UnitLevel("pet") or 0
+    local _, browsing = EffectiveFamily()
+    -- browsing another family: no pet level to compare, key off hunter level
+    local petLevel = browsing and 0 or (UnitLevel("pet") or 0)
     local playerLevel = UnitLevel("player") or 0
     local totalTP, spentTP = GetPetTrainingPoints()
     local freeTP = (totalTP or 0) - (spentTP or 0)
@@ -91,15 +114,25 @@ local function SortByLevel(list)
 end
 
 local function BuildSections()
-    local sections = { now = {}, fromPet = {}, gated = {}, notKnown = {}, other = {}, known = {} }
-    local famId = ns.GetPetFamilyId()
-    local petLevel = UnitLevel("pet") or 0
-    local totalTP, spentTP = GetPetTrainingPoints()
-    local freeTP = (totalTP or 0) - (spentTP or 0)
+    local sections = { now = {}, fromPet = {}, gated = {}, notKnown = {}, known = {} }
+    local famId, browsing = EffectiveFamily()
+    -- browsing another family: a freshly tamed pet can reach hunter level,
+    -- and its points are unknown - so gate by hunter level only
+    local petLevel, freeTP
+    if browsing then
+        petLevel = UnitLevel("player") or 0
+        freeTP = math.huge
+    else
+        petLevel = UnitLevel("pet") or 0
+        local totalTP, spentTP = GetPetTrainingPoints()
+        freeTP = (totalTP or 0) - (spentTP or 0)
+    end
     local knownTeach = ns.chardb.knownTeach
 
     for _, ability in ipairs(ns.PET_ABILITIES) do
-        if not ability.families or not famId or ability.families[famId] then
+        if ns.db.hiddenAbilities[ability.key] then
+            -- hidden via the ability filter popup (all ranks)
+        elseif not ability.families or not famId or ability.families[famId] then
             local petRank = 0
             for _, r in ipairs(ability.ranks) do
                 if IsSpellKnown(r.spell, true) then petRank = r.rank end
@@ -132,14 +165,6 @@ local function BuildSections()
                     table.insert(sections.notKnown, r)
                 end
             end
-        elseif ns.db.showOtherFamilies then
-            -- planning section: this pet's family can't use these, but
-            -- taming/training them now benefits future pets
-            for _, r in ipairs(ability.ranks) do
-                if not knownTeach[r.spell] then
-                    table.insert(sections.other, r)
-                end
-            end
         end
     end
     for _, list in pairs(sections) do SortByLevel(list) end
@@ -151,14 +176,13 @@ local function BuildDisplayList()
     wipe(displayList)
     local sections, famId, petLevel, freeTP = BuildSections()
 
+    -- family selector is always the first row (US-13)
+    table.insert(displayList, { kind = "family" })
     if not ns.chardb.scannedBeastTraining then
         table.insert(displayList, { kind = "note",
             text = L["Open Beast Training once to sync what you know."] })
     end
-    if not UnitExists("pet") then
-        table.insert(displayList, { kind = "note",
-            text = L["No pet active - showing all families."] })
-    elseif not famId then
+    if UnitExists("pet") and not ns.GetPetFamilyId() then
         table.insert(displayList, { kind = "note",
             text = L["Unknown pet family - showing all abilities."] })
     end
@@ -199,7 +223,6 @@ local function BuildDisplayList()
     AddSection(L["From your current pet"], sections.fromPet, COLORS.fromPet, LevelText)
     AddSection(L["Needs pet level / points"], sections.gated, COLORS.gated, LevelText)
     AddSection(L["Not learned by you yet"], sections.notKnown, COLORS.notKnown, LevelText, SourceTag)
-    AddSection(L["Other pet families"], sections.other, COLORS.other, LevelText, SourceTag)
     if ns.db.showKnownByPet then
         AddSection(L["Known by pet"], sections.known, COLORS.known, function()
             return L["known"]
@@ -284,6 +307,53 @@ local function Row_OnEnter(self)
     ns.ShowRankTooltip(item.entry, self)
 end
 
+-- family dropdown on the selector row (modern menu API - present on Era,
+-- WhatsTraining uses it too)
+local function OpenFamilyMenu(row)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(row, function(_, rootDescription)
+        rootDescription:CreateTitle(L["Pet family"])
+        local curFam = ns.GetPetFamilyId()
+        if curFam then
+            rootDescription:CreateRadio(
+                string.format(L["Current pet (%s)"], ns.PET_FAMILIES[curFam] or "?"),
+                function() return familySelection == nil end,
+                function() SetFamilySelection(nil) end)
+        end
+        rootDescription:CreateRadio(L["All families"],
+            function() return familySelection == "all" or (familySelection == nil and not curFam) end,
+            function() SetFamilySelection(curFam and "all" or nil) end)
+        local fams = {}
+        for id, name in pairs(ns.PET_FAMILIES) do
+            fams[#fams + 1] = { id = id, name = name }
+        end
+        table.sort(fams, function(a, b) return a.name < b.name end)
+        for _, f in ipairs(fams) do
+            rootDescription:CreateRadio(f.name,
+                function(id) return familySelection == id end,
+                function(id) SetFamilySelection(id) end, f.id)
+        end
+    end)
+end
+
+local function FamilyRowLabel()
+    local label
+    if familySelection == "all" then
+        label = L["All families"]
+    elseif familySelection then
+        label = ns.PET_FAMILIES[familySelection] or "?"
+    else
+        local curFam = ns.GetPetFamilyId()
+        if curFam then
+            label = string.format(L["Current pet (%s)"], ns.PET_FAMILIES[curFam] or "?")
+        else
+            label = L["All families"]
+        end
+    end
+    return string.format("%s %s |TInterface\\ChatFrame\\ChatFrameExpandArrow:12|t",
+        L["Family:"], label)
+end
+
 local function CreateRow(index)
     local row = CreateFrame("Button", nil, scrollContent)
     row:SetSize(scrollContent:GetWidth() - 4, ROW_HEIGHT)
@@ -306,6 +376,11 @@ local function CreateRow(index)
 
     row:SetScript("OnEnter", Row_OnEnter)
     row:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    row:SetScript("OnClick", function(self)
+        if self.item and self.item.kind == "family" then
+            OpenFamilyMenu(self)
+        end
+    end)
     return row
 end
 
@@ -326,6 +401,12 @@ local function RefreshRows()
                 row.text:SetJustifyH("CENTER")
                 row.text:SetText(item.text)
                 row.text:SetTextColor(unpack(COLORS.header))
+                row.right:SetText("")
+            elseif item.kind == "family" then
+                row.icon:SetTexture(nil)
+                row.text:SetJustifyH("LEFT")
+                row.text:SetText(FamilyRowLabel())
+                row.text:SetTextColor(1, 0.82, 0)
                 row.right:SetText("")
             elseif item.kind == "note" then
                 row.icon:SetTexture(nil)
@@ -514,8 +595,96 @@ local function CreateUI()
         end)
         return btn
     end
-    local tamingButton = CreateFilterButton("taming", L["Taming"], search, 2)
-    CreateFilterButton("trainer", L["Trainer"], tamingButton, 4)
+    local tamingButton = CreateFilterButton("taming", L["Taming"], search, 1)
+    local trainerButton = CreateFilterButton("trainer", L["Trainer"], tamingButton, 2)
+
+    -- ability filter: gear button opening a checklist with one entry per
+    -- ability (no ranks); unticked abilities disappear from every list.
+    -- Persisted account-wide in PetTipsDB.hiddenAbilities.
+    local hidePopup, popupChecks
+    local function BuildHidePopup()
+        hidePopup = CreateFrame("Frame", "PetTipsAbilityFilter", overlay, "BackdropTemplate")
+        hidePopup:SetFrameStrata("DIALOG")
+        hidePopup:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        hidePopup:SetBackdropColor(0, 0, 0, 0.95)
+
+        local title = hidePopup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOPLEFT", 10, -8)
+        title:SetText(L["Shown abilities"])
+
+        local entries = {}
+        for _, ability in ipairs(ns.PET_ABILITIES) do
+            entries[#entries + 1] = ability
+        end
+        table.sort(entries, function(a, b)
+            return (GetSpellInfo(a.ranks[1].spell) or a.key)
+                < (GetSpellInfo(b.ranks[1].spell) or b.key)
+        end)
+
+        local rowH, colW, perCol = 21, 150, math.ceil(#entries / 2)
+        popupChecks = {}
+        for i, ability in ipairs(entries) do
+            local col = (i > perCol) and 1 or 0
+            local rowIdx = (i - 1) % perCol
+            local cb = CreateFrame("CheckButton", nil, hidePopup, "UICheckButtonTemplate")
+            cb:SetSize(22, 22)
+            cb:SetPoint("TOPLEFT", 8 + col * colW, -24 - rowIdx * rowH)
+            cb.abilityKey = ability.key
+
+            local icon = hidePopup:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(15, 15)
+            icon:SetPoint("LEFT", cb, "RIGHT", 1, 0)
+            icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            icon:SetTexture(select(3, GetSpellInfo(ability.ranks[1].spell))
+                or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+            local label = hidePopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+            label:SetPoint("LEFT", icon, "RIGHT", 3, 0)
+            label:SetText(GetSpellInfo(ability.ranks[1].spell) or ability.key)
+            label:SetTextColor(0.9, 0.9, 0.9)
+
+            cb:SetScript("OnClick", function(self)
+                ns.db.hiddenAbilities[self.abilityKey] = (not self:GetChecked()) or nil
+                BuildDisplayList()
+                RefreshRows()
+                if ns.RefreshCraftSidePanel then ns.RefreshCraftSidePanel() end
+            end)
+            popupChecks[#popupChecks + 1] = cb
+        end
+        hidePopup:SetSize(8 + 2 * colW + 8, 24 + perCol * rowH + 10)
+        hidePopup:SetPoint("TOPRIGHT", trainerButton, "BOTTOMRIGHT", 20, -4)
+        hidePopup:Hide()
+    end
+
+    local hideButton = CreateFrame("Button", nil, overlay)
+    hideButton:SetSize(22, 22)
+    hideButton:SetPoint("LEFT", trainerButton, "RIGHT", 2, 0)
+    hideButton:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
+    hideButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
+    hideButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["Choose which abilities are shown"], 1, 1, 1)
+        GameTooltip:AddLine(L["Untick an ability to hide all of its ranks from the list (e.g. the resistances)."], nil, nil, nil, true)
+        GameTooltip:Show()
+    end)
+    hideButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    hideButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if not hidePopup then BuildHidePopup() end
+        if hidePopup:IsShown() then
+            hidePopup:Hide()
+        else
+            for _, cb in ipairs(popupChecks) do
+                cb:SetChecked(not ns.db.hiddenAbilities[cb.abilityKey])
+            end
+            hidePopup:Show()
+        end
+    end)
 
     tpText = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     tpText:SetPoint("TOPRIGHT", -70, -64)
@@ -540,8 +709,18 @@ local function CreateUI()
     end)
     overlay:SetScript("OnHide", function(self)
         self:UnregisterAllEvents()
+        -- leaving the view always closes the ability-filter popup, or it
+        -- would silently reappear with the overlay (it is a child frame)
+        if hidePopup then hidePopup:Hide() end
+        -- US-13: the family selection lives only while the view is open
+        familySelection = nil
     end)
-    overlay:SetScript("OnEvent", function()
+    overlay:SetScript("OnEvent", function(_, event)
+        if event == "UNIT_PET" then
+            -- pet changed: a sticky family filter would silently hide the
+            -- new pet's list - snap back to the default
+            familySelection = nil
+        end
         BuildDisplayList()
         RefreshRows()
     end)

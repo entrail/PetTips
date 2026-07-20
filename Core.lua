@@ -11,10 +11,10 @@ ns.L = setmetatable({}, { __index = function(_, key) return key end })
 local defaults = {
     enableList = true,         -- spellbook pet tab + training list
     showKnownByPet = true,     -- gray "already known by pet" section
-    showOtherFamilies = false, -- planning section: abilities this pet's family can't use
     beastTooltips = true,      -- taught-ability lines on beast tooltips
     mobLines = 10,             -- teaching mobs listed per ability tooltip
     craftPanel = false,        -- missing-ranks panel next to Beast Training
+    hiddenAbilities = {},      -- abilityKey -> true: hidden from all lists
 }
 
 local function CopyDefaults(src, dst)

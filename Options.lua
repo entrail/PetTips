@@ -53,25 +53,6 @@ ns.OnInit(function()
             L["Also list the ranks your current pet already knows, as a gray reference section."])
     end
 
-    do
-        local setting = Settings.RegisterAddOnSetting(
-            category,
-            "PetTips_ShowOtherFamilies",
-            "showOtherFamilies",
-            ns.db,
-            Settings.VarType.Boolean,
-            L["Show abilities of other pet families"],
-            false
-        )
-        if Settings.SetOnValueChangedCallback then
-            Settings.SetOnValueChangedCallback("PetTips_ShowOtherFamilies", function()
-                if ns.RefreshTrainingList then ns.RefreshTrainingList() end
-            end)
-        end
-        Settings.CreateCheckbox(category, setting,
-            L["Planning aid: also list abilities your current pet's family cannot use, so you know what to tame or train for future pets. The tooltip shows which families can use them."])
-    end
-
     AddHeader(L["Beast Training"])
 
     do
