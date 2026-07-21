@@ -5,6 +5,7 @@
 ## Version: 1.1.1
 ## SavedVariables: PetTipsDB
 ## SavedVariablesPerCharacter: PetTipsCharDB
+## X-Curse-Project-ID: 1617250
 
 Core.lua
 Locales\deDE.lua
