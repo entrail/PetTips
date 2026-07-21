@@ -370,14 +370,10 @@ local function RankLabel(entry)
     return name
 end
 
-local function HandleGrimoireTooltip(tooltip)
-    if not ns.db.grimoireTooltips then return end
-    if not tooltip.GetItem then return end
-    local _, link = tooltip:GetItem()
-    local itemId = link and tonumber(link:match("item:(%d+)"))
-    local entry = itemId and ns.GRIMOIRE_BY_ITEM and ns.GRIMOIRE_BY_ITEM[itemId]
-    if not entry then return end
-
+-- How a grimoire relates to what the demon knows: "known" (don't buy it
+-- twice), "obsolete" (a higher rank is known) or "missing" (worth buying).
+-- Also returns the demon's family name for the tooltip line.
+function ns.ClassifyGrimoire(entry)
     local known = ns.chardb.knownTeach
     local curFam = ns.GetPetFamilyId()
     local isCurrent = curFam and entry.ability.families[curFam]
@@ -388,12 +384,27 @@ local function HandleGrimoireTooltip(tooltip)
     for _, r in ipairs(entry.ability.ranks) do
         if rankKnown(r) then petRank = r.rank end
     end
-
     local famName
     for id in pairs(entry.ability.families) do famName = ns.DEMON_FAMILIES[id] end
-    if rankKnown(entry) then
+    local state
+    if rankKnown(entry) then state = "known"
+    elseif petRank > entry.rank then state = "obsolete"
+    else state = "missing" end
+    return state, famName
+end
+
+local function HandleGrimoireTooltip(tooltip)
+    if not ns.db.grimoireTooltips then return end
+    if not tooltip.GetItem then return end
+    local _, link = tooltip:GetItem()
+    local itemId = link and tonumber(link:match("item:(%d+)"))
+    local entry = itemId and ns.GRIMOIRE_BY_ITEM and ns.GRIMOIRE_BY_ITEM[itemId]
+    if not entry then return end
+
+    local state, famName = ns.ClassifyGrimoire(entry)
+    if state == "known" then
         tooltip:AddLine(string.format(L["PetTips: your %s already knows this."], famName or "?"), 0.4, 0.9, 0.4)
-    elseif petRank > entry.rank then
+    elseif state == "obsolete" then
         tooltip:AddLine(string.format(L["PetTips: your %s already knows a higher rank."], famName or "?"), 0.6, 0.6, 0.6)
     else
         tooltip:AddLine(string.format(L["PetTips: not yet known by your %s."], famName or "?"), 1, 0.45, 0.35)

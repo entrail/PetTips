@@ -183,6 +183,24 @@ local function BuildSectionsWarlock()
     return sections, famId, playerLevel, 0
 end
 
+-- True when the warlock view for selFam (nil = all families) may be
+-- missing recorded grimoires: some summonable demon in it is neither the
+-- current pet (live-read) nor recorded since install. Demons the warlock
+-- can't summon yet are never stale - no summon = no grimoire could ever
+-- have been used = nothing missing.
+function ns.DemonListStale(selFam)
+    local synced = ns.chardb.syncedDemonFams or {}
+    local curFam = ns.GetPetFamilyId()
+    local function needsSync(id)
+        return id ~= curFam and not synced[id] and ns.CanSummonDemonFamily(id)
+    end
+    if selFam then return needsSync(selFam) end
+    for id in pairs(ns.PET_FAMILIES) do
+        if needsSync(id) then return true end
+    end
+    return false
+end
+
 local function BuildSections()
     if ns.isWarlock then return BuildSectionsWarlock() end
     local sections = { now = {}, fromPet = {}, gated = {}, notKnown = {}, known = {} }
@@ -252,24 +270,8 @@ local function BuildDisplayList()
     if ns.isWarlock then
         -- bought grimoires are only visible while that demon is summoned;
         -- warn whenever the view includes a demon whose known-state was
-        -- never recorded (also with NO pet out - that list is stale too).
-        -- Demons the warlock can't even summon yet are never stale: no
-        -- summon = no grimoire could ever have been used = nothing missing.
-        local selFam = EffectiveFamily()
-        local synced = ns.chardb.syncedDemonFams or {}
-        local curFam = ns.GetPetFamilyId()
-        local function needsSync(id)
-            return id ~= curFam and not synced[id] and ns.CanSummonDemonFamily(id)
-        end
-        local stale = false
-        if selFam then
-            stale = needsSync(selFam)
-        else
-            for id in pairs(ns.PET_FAMILIES) do
-                if needsSync(id) then stale = true end
-            end
-        end
-        if stale then
+        -- never recorded (also with NO pet out - that list is stale too)
+        if ns.DemonListStale((EffectiveFamily())) then
             table.insert(displayList, { kind = "note",
                 text = L["Bought grimoires are recorded while that demon is summoned."] })
         end

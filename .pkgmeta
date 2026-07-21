@@ -4,3 +4,4 @@ ignore:
     - README.md
     - Generate-PetTipsData.ps1
     - Generate-WarlockPetData.ps1
+    - tests

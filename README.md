@@ -101,7 +101,7 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
 
 ## Data & compatibility
 
-- Complete Classic Era catalogue: **21 hunter abilities, 111 ranks, 297
+- Complete Classic Era catalogue: **21 hunter abilities, 106 ranks, 297
   teaching beasts** plus **16 demon abilities, 63 ranks, 59 grimoires**,
   with training point costs, level requirements and prices — compiled
   from the game client's own data, Petopia and the original 1.12 trainer
