@@ -30,8 +30,9 @@ for your current pet, grouped by what is actionable:
 - **Needs pet level / points** — known, but the pet has to catch up.
 - **Not learned by you yet** — tagged **(trainer)** or **(taming)** so you
   always know your errand.
-- **Known by pet** and an optional **Other pet families** planning section
-  (what to tame for FUTURE pets, with "usable by" info) round it off.
+- **Known by pet** rounds it off as a gray reference section, and a
+  **family selector** in the first row browses any other pet family —
+  planning your next tame included ("usable by" info in every tooltip).
 
 Every row shows **"5 TP | Level 8"**, color-coded: white when your pet
 qualifies, orange while only you do, red when neither. Filter buttons
@@ -76,10 +77,13 @@ is new — one glance answers "is this tame worth it?".
 
 What you can already teach is read from the game itself: opening Beast
 Training (or a pet trainer) syncs the addon's cache, and skills learned
-from a tamed pet are picked up the moment the game announces them. Until
-the first sync the list says so honestly instead of guessing. On a
-warlock, each demon's known ranks are recorded while it is summoned — so
-summon a demon once and the addon remembers its books forever.
+from a tamed pet are picked up the moment the game announces them. On the
+very first run a small panel docked to the spellbook offers a one-click
+**Beast Training button** for that initial sync — until it happened, the
+list says so honestly instead of guessing. On a warlock, each demon's
+known ranks are recorded while it is summoned — summon a demon once and
+the addon remembers its books forever (and it never warns about demons
+you cannot even summon yet).
 
 ## Configuration
 
@@ -87,7 +91,6 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
 
 - **Enable training list** — the spellbook tab and list.
 - **Show abilities known by pet** — the gray reference section.
-- **Show abilities of other pet families** — the planning section.
 - **Show missing-ranks panel at Beast Training** — docks a "what's still
   missing" panel to the trainer window (default off).
 - **Beast tooltips** — the teach-lines on enemy beasts.
