@@ -285,6 +285,18 @@ function ns.TrainerScanDebug()
     print(string.format("PetTips debug: known ranks cached=%d, beastTrainingSynced=%s",
         KnownCount(), tostring(ns.chardb.scannedBeastTraining)))
 
+    if ns.isWarlock then
+        local fams = {}
+        for id in pairs(ns.chardb.syncedDemonFams or {}) do
+            fams[#fams + 1] = ns.DEMON_FAMILIES[id] or tostring(id)
+        end
+        print(string.format("PetTips debug: warlock - synced demons: %s; current pet family=%s",
+            #fams > 0 and table.concat(fams, ", ") or "NONE",
+            tostring(UnitCreatureFamily("pet"))))
+        ns.SyncCurrentDemonDebug()
+        return
+    end
+
     nameToAbility = nil
     local numCrafts = GetNumCrafts and GetNumCrafts() or 0
     print(string.format("PetTips debug: craft window: %d crafts", numCrafts))
@@ -315,7 +327,124 @@ function ns.TrainerScanDebug()
     end
 end
 
+-- ------------------------------------------------- warlock demon sync
+-- Warlock known-state works differently: a bought grimoire teaches the
+-- rank to the demon TYPE, but the client only exposes it while that demon
+-- is summoned (IsSpellKnown(spell, true) on the pet spellbook; there is
+-- no trainer window - demon trainers are grimoire VENDORS on Era). So
+-- whenever a demon is out, its family's ranks are recorded into the same
+-- per-character cache the hunter scan uses (chardb.knownTeach), which is
+-- what lets the list show the other demons' bought ranks while browsing.
+-- chardb.syncedDemonFams[famId] marks families recorded at least once.
+
+local function SyncCurrentDemon()
+    local famId = ns.GetPetFamilyId()
+    if not famId or not ns.DEMON_FAMILIES[famId] then return end
+    local known = ns.chardb.knownTeach
+    local changed = false
+    for _, ability in ipairs(ns.PET_ABILITIES) do
+        if ability.families[famId] then
+            for _, r in ipairs(ability.ranks) do
+                if not known[r.spell] and IsSpellKnown(r.spell, true) then
+                    known[r.spell] = true
+                    changed = true
+                end
+            end
+        end
+    end
+    ns.chardb.syncedDemonFams[famId] = true
+    if changed and ns.RefreshTrainingList then ns.RefreshTrainingList() end
+end
+ns.SyncCurrentDemonDebug = SyncCurrentDemon -- force-run via /pettips debug
+
+-- ------------------------------------------------- grimoire tooltips
+-- Known/missing hint on grimoire item tooltips (vendor, bags, links):
+-- green when the demon already knows that rank (don't buy it twice!),
+-- red when it is still missing, gray when a higher rank makes it moot.
+
+local function RankLabel(entry)
+    local name = GetSpellInfo(entry.spell) or ("spell " .. entry.spell)
+    if #entry.ability.ranks > 1 then
+        return string.format("%s %d", name, entry.rank)
+    end
+    return name
+end
+
+local function HandleGrimoireTooltip(tooltip)
+    if not ns.db.grimoireTooltips then return end
+    if not tooltip.GetItem then return end
+    local _, link = tooltip:GetItem()
+    local itemId = link and tonumber(link:match("item:(%d+)"))
+    local entry = itemId and ns.GRIMOIRE_BY_ITEM and ns.GRIMOIRE_BY_ITEM[itemId]
+    if not entry then return end
+
+    local known = ns.chardb.knownTeach
+    local curFam = ns.GetPetFamilyId()
+    local isCurrent = curFam and entry.ability.families[curFam]
+    local function rankKnown(r)
+        return known[r.spell] or (isCurrent and IsSpellKnown(r.spell, true))
+    end
+    local petRank = 0
+    for _, r in ipairs(entry.ability.ranks) do
+        if rankKnown(r) then petRank = r.rank end
+    end
+
+    local famName
+    for id in pairs(entry.ability.families) do famName = ns.DEMON_FAMILIES[id] end
+    if rankKnown(entry) then
+        tooltip:AddLine(string.format(L["PetTips: your %s already knows this."], famName or "?"), 0.4, 0.9, 0.4)
+    elseif petRank > entry.rank then
+        tooltip:AddLine(string.format(L["PetTips: your %s already knows a higher rank."], famName or "?"), 0.6, 0.6, 0.6)
+    else
+        tooltip:AddLine(string.format(L["PetTips: not yet known by your %s."], famName or "?"), 1, 0.45, 0.35)
+    end
+end
+
 -- ---------------------------------------------------------------- events
+
+ns.OnLogin(function()
+    if ns.playerClass ~= "WARLOCK" then return end
+    local watcher = CreateFrame("Frame")
+    watcher:RegisterUnitEvent("UNIT_PET", "player")
+    watcher:RegisterEvent("SPELLS_CHANGED")
+    watcher:RegisterEvent("LEARNED_SPELL_IN_TAB")
+    watcher:SetScript("OnEvent", function(_, event, arg1)
+        eventLog[event] = (eventLog[event] or 0) + 1
+        if event == "LEARNED_SPELL_IN_TAB" then
+            local entry = arg1 and ns.ABILITY_BY_SPELL[arg1]
+            if entry and not ns.chardb.knownTeach[arg1] then
+                ns.chardb.knownTeach[arg1] = true
+                print(string.format(L["PetTips: your demon learned %s (rank %d)."],
+                    GetSpellInfo(arg1) or "?", entry.rank))
+                if ns.RefreshTrainingList then ns.RefreshTrainingList() end
+            end
+            return
+        end
+        SyncCurrentDemon()
+    end)
+    -- initial sync: pet spell data can lag behind PLAYER_LOGIN
+    C_Timer.After(3, SyncCurrentDemon)
+
+    -- both tooltip API paths with a once-per-tooltip guard (same pattern
+    -- as ProfessionTips): whichever fires first renders, the other no-ops
+    local function OnCleared(tooltip) tooltip.petTipsGrimoireDone = nil end
+    GameTooltip:HookScript("OnTooltipCleared", OnCleared)
+    ItemRefTooltip:HookScript("OnTooltipCleared", OnCleared)
+    local function GuardedHandle(tooltip)
+        if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
+        if tooltip.petTipsGrimoireDone then return end
+        tooltip.petTipsGrimoireDone = true
+        HandleGrimoireTooltip(tooltip)
+    end
+    if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
+        and Enum.TooltipDataType and Enum.TooltipDataType.Item then
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, GuardedHandle)
+    end
+    pcall(function()
+        GameTooltip:HookScript("OnTooltipSetItem", GuardedHandle)
+        ItemRefTooltip:HookScript("OnTooltipSetItem", GuardedHandle)
+    end)
+end)
 
 ns.OnLogin(function()
     if ns.playerClass ~= "HUNTER" then return end

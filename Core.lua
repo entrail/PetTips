@@ -12,6 +12,7 @@ local defaults = {
     enableList = true,         -- spellbook pet tab + training list
     showKnownByPet = true,     -- gray "already known by pet" section
     beastTooltips = true,      -- taught-ability lines on beast tooltips
+    grimoireTooltips = true,   -- known/missing hints on grimoire item tooltips
     mobLines = 10,             -- teaching mobs listed per ability tooltip
     craftPanel = false,        -- missing-ranks panel next to Beast Training
     hiddenAbilities = {},      -- abilityKey -> true: hidden from all lists
@@ -54,6 +55,57 @@ function ns.NewPetAbilityDB()
         bySpell[spellId] = entry
     end
     return ability, rank
+end
+
+-- Factory for Data/<flavor>/DemonAbilitiesData.lua. Builds
+-- ns.DEMON_ABILITIES / ns.DEMON_ABILITY_BY_SPELL (same entry shape as the
+-- hunter DB, so the list code can share most paths) and
+-- ns.GRIMOIRE_BY_ITEM (grimoire itemId -> rank entry, for item tooltips).
+-- Demon entries: level = required WARLOCK level, tp = 0 (demons have no
+-- training points), src "g" = grimoire item at a demon trainer vendor,
+-- "a" = automatic (rank 1 comes with the demon), money = grimoire price.
+function ns.NewDemonAbilityDB()
+    local abilities, bySpell, byItem = {}, {}, {}
+    ns.DEMON_ABILITIES = abilities
+    ns.DEMON_ABILITY_BY_SPELL = bySpell
+    ns.GRIMOIRE_BY_ITEM = byItem
+    local current
+    local function ability(key, familyId)
+        current = { key = key, families = { [familyId] = true }, ranks = {} }
+        abilities[#abilities + 1] = current
+    end
+    local function rank(spellId, rankNo, level, src, money, itemId)
+        local entry = {
+            spell = spellId, rank = rankNo, level = level,
+            tp = 0, src = src, money = money or 0, item = itemId, ability = current,
+        }
+        current.ranks[rankNo] = entry
+        bySpell[spellId] = entry
+        if itemId then byItem[itemId] = entry end
+    end
+    return ability, rank
+end
+
+-- Which demons this warlock can have at all: the summon spells are the
+-- exact, locale-safe signal (Classic Era spell IDs; 713 = Summon Incubus
+-- on realms that have it, same family data as the Succubus). A demon
+-- that cannot be summoned cannot have learned any grimoire either -
+-- using one requires that demon to be out - so "can't summon" always
+-- means "nothing to sync".
+local DEMON_SUMMON_SPELLS = {
+    [23] = { 688 },      -- Imp
+    [16] = { 697 },      -- Voidwalker
+    [17] = { 712, 713 }, -- Succubus / Incubus
+    [15] = { 691 },      -- Felhunter
+}
+
+function ns.CanSummonDemonFamily(famId)
+    local spells = DEMON_SUMMON_SPELLS[famId]
+    if not spells then return false end
+    for _, spellId in ipairs(spells) do
+        if IsPlayerSpell(spellId) then return true end
+    end
+    return false
 end
 
 -- Factory for Data/<flavor>/TameMobsData.lua. Builds ns.TAME_MOBS
@@ -191,10 +243,20 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         ns.db = PetTipsDB
         PetTipsCharDB = PetTipsCharDB or {}
         if type(PetTipsCharDB.knownTeach) ~= "table" then PetTipsCharDB.knownTeach = {} end
+        if type(PetTipsCharDB.syncedDemonFams) ~= "table" then PetTipsCharDB.syncedDemonFams = {} end
         ns.chardb = PetTipsCharDB
         for _, fn in ipairs(initCallbacks) do fn() end
     elseif event == "PLAYER_LOGIN" then
         ns.playerClass = select(2, UnitClass("player"))
+        -- Warlocks reuse the hunter list code: point the generic tables at
+        -- the demon data before any login callback builds UI on top of them.
+        if ns.playerClass == "WARLOCK" then
+            ns.isWarlock = true
+            ns.PET_ABILITIES = ns.DEMON_ABILITIES
+            ns.ABILITY_BY_SPELL = ns.DEMON_ABILITY_BY_SPELL
+            ns.PET_FAMILIES = ns.DEMON_FAMILIES
+            ns.FAMILY_BY_NAME = ns.DEMON_FAMILY_BY_NAME
+        end
         for _, fn in ipairs(loginCallbacks) do fn() end
     end
 end)

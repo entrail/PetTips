@@ -72,6 +72,8 @@ local function SourceTag(entry)
     if entry.src == "t" then return L["(trainer)"]
     elseif entry.src == "w" then return L["(taming)"]
     elseif entry.src == "tw" then return L["(trainer or taming)"]
+    elseif entry.src == "g" then return L["(grimoire)"]
+    elseif entry.src == "a" then return L["(with the demon)"]
     else return L["(no known source)"] end
 end
 
@@ -80,6 +82,24 @@ end
 -- the pet meets it, orange while only the hunter does (pet just has to
 -- catch up), red when even the hunter is below the requirement.
 local function LevelText(entry)
+    -- warlock: grimoire price (red while you can't afford it) | required
+    -- WARLOCK level (red while below it) - demons have no TP or pet level
+    if ns.isWarlock then
+        local playerLevel = UnitLevel("player") or 0
+        local lvlColor = (playerLevel >= entry.level) and "|cffffffff" or "|cffff2020"
+        local left
+        if entry.src == "g" then
+            if GetMoney() >= (entry.money or 0) then
+                left = GetCoinTextureString(entry.money or 0)
+            else
+                left = "|cffff2020" .. GetCoinTextureString(entry.money or 0) .. "|r"
+            end
+        else
+            left = L["auto"]
+        end
+        return string.format("%s || %s%s|r", left,
+            lvlColor, string.format(L["Level %d"], entry.level))
+    end
     local _, browsing = EffectiveFamily()
     -- browsing another family: no pet level to compare, key off hunter level
     local petLevel = browsing and 0 or (UnitLevel("pet") or 0)
@@ -113,7 +133,58 @@ local function SortByLevel(list)
     end)
 end
 
+-- Warlock sections: a demon rank is either known (bought grimoire / came
+-- with the demon), buyable right now (highest rank whose warlock level is
+-- met - lower unbought ranks would only waste gold), or level-gated.
+-- Known-state: live pet spellbook for the summoned demon, plus the
+-- per-character cache (ns.chardb.knownTeach) filled whenever a demon is
+-- summoned (KnownTraining.lua) - that covers browsing the other demons.
+local function BuildSectionsWarlock()
+    local sections = { now = {}, fromPet = {}, gated = {}, notKnown = {}, known = {} }
+    local famId = EffectiveFamily()
+    local playerLevel = UnitLevel("player") or 0
+    local knownTeach = ns.chardb.knownTeach
+    local curFam = ns.GetPetFamilyId()
+
+    for _, ability in ipairs(ns.PET_ABILITIES) do
+        if ns.db.hiddenAbilities[ability.key] then
+            -- hidden via the ability filter popup (all ranks)
+        elseif not famId or ability.families[famId] then
+            local isCurrent = curFam and ability.families[curFam]
+            local function rankKnown(r)
+                return knownTeach[r.spell] or (isCurrent and IsSpellKnown(r.spell, true))
+            end
+            local petRank = 0
+            for _, r in ipairs(ability.ranks) do
+                if rankKnown(r) then petRank = r.rank end
+            end
+            local best
+            for _, r in ipairs(ability.ranks) do
+                if r.rank > petRank and r.src == "g" and playerLevel >= r.level then
+                    best = r
+                end
+            end
+            for _, r in ipairs(ability.ranks) do
+                if rankKnown(r) then
+                    table.insert(sections.known, r)
+                elseif r.rank < petRank then
+                    -- skipped rank below the known one: forever pointless
+                elseif best and r.rank < best.rank then
+                    -- superseded by a higher buyable rank
+                elseif r == best then
+                    table.insert(sections.now, r)
+                else
+                    table.insert(sections.gated, r)
+                end
+            end
+        end
+    end
+    for _, list in pairs(sections) do SortByLevel(list) end
+    return sections, famId, playerLevel, 0
+end
+
 local function BuildSections()
+    if ns.isWarlock then return BuildSectionsWarlock() end
     local sections = { now = {}, fromPet = {}, gated = {}, notKnown = {}, known = {} }
     local famId, browsing = EffectiveFamily()
     -- browsing another family: a freshly tamed pet can reach hunter level,
@@ -178,8 +249,32 @@ local function BuildDisplayList()
 
     -- family selector is always the first row (US-13)
     table.insert(displayList, { kind = "family" })
-    if not ns.chardb.scannedBeastTraining then
-        table.insert(displayList, { kind = "note",
+    if ns.isWarlock then
+        -- bought grimoires are only visible while that demon is summoned;
+        -- warn whenever the view includes a demon whose known-state was
+        -- never recorded (also with NO pet out - that list is stale too).
+        -- Demons the warlock can't even summon yet are never stale: no
+        -- summon = no grimoire could ever have been used = nothing missing.
+        local selFam = EffectiveFamily()
+        local synced = ns.chardb.syncedDemonFams or {}
+        local curFam = ns.GetPetFamilyId()
+        local function needsSync(id)
+            return id ~= curFam and not synced[id] and ns.CanSummonDemonFamily(id)
+        end
+        local stale = false
+        if selFam then
+            stale = needsSync(selFam)
+        else
+            for id in pairs(ns.PET_FAMILIES) do
+                if needsSync(id) then stale = true end
+            end
+        end
+        if stale then
+            table.insert(displayList, { kind = "note",
+                text = L["Bought grimoires are recorded while that demon is summoned."] })
+        end
+    elseif not ns.chardb.scannedBeastTraining then
+        table.insert(displayList, { kind = "note", beastSync = true,
             text = L["Open Beast Training once to sync what you know."] })
     end
     if UnitExists("pet") and not ns.GetPetFamilyId() then
@@ -190,7 +285,8 @@ local function BuildDisplayList()
     local function Matches(r)
         -- both on = everything (incl. the two "no known source" ranks);
         -- exactly one on = that source only; both off = nothing
-        if not (sourceFilter.taming and sourceFilter.trainer) then
+        -- (warlocks have no source filter buttons - everything is grimoires)
+        if not ns.isWarlock and not (sourceFilter.taming and sourceFilter.trainer) then
             local fromTaming = r.src == "w" or r.src == "tw"
             local fromTrainer = r.src == "t" or r.src == "tw"
             if not ((sourceFilter.taming and fromTaming)
@@ -219,10 +315,15 @@ local function BuildDisplayList()
 
     -- right column is always the required pet level (WhatsTraining look);
     -- TP / money costs and mob lists live in the row tooltip
-    AddSection(L["Available now"], sections.now, COLORS.now, LevelText)
-    AddSection(L["From your current pet"], sections.fromPet, COLORS.fromPet, LevelText)
-    AddSection(L["Needs pet level / points"], sections.gated, COLORS.gated, LevelText)
-    AddSection(L["Not learned by you yet"], sections.notKnown, COLORS.notKnown, LevelText, SourceTag)
+    if ns.isWarlock then
+        AddSection(L["Available now"], sections.now, COLORS.now, LevelText)
+        AddSection(L["Needs your level"], sections.gated, COLORS.gated, LevelText, SourceTag)
+    else
+        AddSection(L["Available now"], sections.now, COLORS.now, LevelText)
+        AddSection(L["From your current pet"], sections.fromPet, COLORS.fromPet, LevelText)
+        AddSection(L["Needs pet level / points"], sections.gated, COLORS.gated, LevelText)
+        AddSection(L["Not learned by you yet"], sections.notKnown, COLORS.notKnown, LevelText, SourceTag)
+    end
     if ns.db.showKnownByPet then
         AddSection(L["Known by pet"], sections.known, COLORS.known, function()
             return L["known"]
@@ -241,8 +342,13 @@ function ns.ShowRankTooltip(entry, owner)
     GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
     GameTooltip:SetSpellByID(entry.spell)
     GameTooltip:AddLine(" ")
-    GameTooltip:AddLine(string.format(L["Requires pet level %d, costs %d training points."],
-        entry.level, entry.tp), 0.9, 0.9, 0.9, true)
+    if ns.isWarlock then
+        GameTooltip:AddLine(string.format(L["Requires warlock level %d."], entry.level),
+            0.9, 0.9, 0.9, true)
+    else
+        GameTooltip:AddLine(string.format(L["Requires pet level %d, costs %d training points."],
+            entry.level, entry.tp), 0.9, 0.9, 0.9, true)
+    end
     local fams = entry.ability.families
     if fams then
         local famId = ns.GetPetFamilyId()
@@ -253,6 +359,21 @@ function ns.ShowRankTooltip(entry, owner)
             GameTooltip:AddLine(string.format(L["Usable by: %s"], table.concat(names, ", ")),
                 0.7, 0.6, 0.9, true)
         end
+    end
+    if ns.isWarlock then
+        if entry.src == "g" then
+            -- GetItemInfo is async on the first query; the name fills in
+            -- on the next hover (the call itself triggers the request)
+            local iname = entry.item and GetItemInfo(entry.item)
+            GameTooltip:AddLine(string.format(L["Grimoire: %s"], iname or "..."),
+                0.6, 0.9, 0.6, true)
+            GameTooltip:AddLine(string.format(L["Costs %s at a demon trainer."],
+                GetCoinTextureString(entry.money or 0)), 0.6, 0.9, 0.6, true)
+        else
+            GameTooltip:AddLine(L["Your demon knows this from the start."], 0.6, 0.9, 0.6, true)
+        end
+        GameTooltip:Show()
+        return
     end
     if entry.src == "t" or entry.src == "tw" then
         if entry.money and entry.money > 0 then
@@ -383,6 +504,8 @@ local function CreateRow(index)
     row:SetScript("OnClick", function(self)
         if self.item and self.item.kind == "family" then
             OpenFamilyMenu(self)
+        elseif self.item and self.item.kind == "note" and self.item.beastSync then
+            if ns.ShowBeastSyncPopup then ns.ShowBeastSyncPopup() end
         end
     end)
     return row
@@ -440,8 +563,23 @@ local function RefreshRows()
     end
     scrollContent:SetHeight(math.max(1, #displayList * ROW_HEIGHT))
 
-    local totalTP, spentTP = GetPetTrainingPoints()
-    tpText:SetText(string.format(L["%d TP unspent"], (totalTP or 0) - (spentTP or 0)))
+    if ns.isWarlock then
+        -- what a trip to the demon trainer costs right now
+        local total = 0
+        for _, item in ipairs(displayList) do
+            if item.kind == "rank" and item.color == COLORS.now then
+                total = total + (item.entry.money or 0)
+            end
+        end
+        if total > 0 then
+            tpText:SetText(string.format(L["Grimoires to buy: %s"], GetCoinTextureString(total)))
+        else
+            tpText:SetText("")
+        end
+    else
+        local totalTP, spentTP = GetPetTrainingPoints()
+        tpText:SetText(string.format(L["%d TP unspent"], (totalTP or 0) - (spentTP or 0)))
+    end
 end
 
 function ns.RefreshTrainingList()
@@ -457,13 +595,96 @@ function ns.TrainingListDebug()
     local sections, famId, petLevel, freeTP = BuildSections()
     local knownCount = 0
     for _ in pairs(ns.chardb.knownTeach) do knownCount = knownCount + 1 end
-    print(string.format("PetTips list: family=%s (%s), pet level %d, %d TP free, known ranks=%d, synced=%s",
-        tostring(famId), tostring(UnitCreatureFamily("pet")), petLevel, freeTP,
+    print(string.format("PetTips list (%s): family=%s (%s), gate level %d, %d TP free, known ranks=%d, synced=%s",
+        tostring(ns.playerClass), tostring(famId), tostring(UnitCreatureFamily("pet")), petLevel, freeTP,
         knownCount, tostring(ns.chardb.scannedBeastTraining)))
     print(string.format("  sections: available=%d fromPet=%d needsLevel/TP=%d notLearned=%d knownByPet=%d",
         #sections.now, #sections.fromPet, #sections.gated, #sections.notKnown, #sections.known))
     BuildDisplayList()
     print(string.format("  total display rows: %d", #displayList))
+end
+
+-- ------------------------------------------------- first-run sync popup
+-- Until Beast Training was scanned once, the list can only guess - so on
+-- opening the view a centered dialog offers a one-click way to the sync:
+-- a SecureActionButton that casts Beast Training (5149) directly (allowed
+-- on a hardware click, out of combat). The popup hides itself the moment
+-- the craft window opens (CRAFT_SHOW - ScanCraft does the actual sync),
+-- with the spellbook, or via "Later" (for the rest of the session; the
+-- note row in the list brings it back). Hunters below the level-10 taming
+-- quests don't know the spell yet - no popup for them, the note suffices.
+
+local syncPopup, syncPopupDismissed
+
+local function ShowSyncPopup()
+    if InCombatLockdown() or not IsPlayerSpell(BEAST_TRAINING_SPELL) then return end
+    if not syncPopup then
+        -- docked to the right edge of the book (clear of the side tabs),
+        -- same dark backdrop as the addon's other panels - present but
+        -- not a modal in the middle of the screen. Parented to the
+        -- overlay, so it comes and goes with the training view.
+        syncPopup = CreateFrame("Frame", "PetTipsSyncPopup", overlay, "BackdropTemplate")
+        syncPopup:SetSize(240, 136)
+        syncPopup:SetPoint("TOPLEFT", overlay, "TOPRIGHT", 8, -45)
+        syncPopup:SetFrameStrata("DIALOG")
+        syncPopup:SetBackdrop({
+            bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+            edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+            tile = true, tileSize = 16, edgeSize = 12,
+            insets = { left = 3, right = 3, top = 3, bottom = 3 },
+        })
+        syncPopup:SetBackdropColor(0, 0, 0, 0.9)
+
+        local title = syncPopup:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOPLEFT", 10, -8)
+        title:SetText("PetTips")
+
+        -- why (the game only reveals known ranks in that window) and
+        -- what to do (one click, everything else is automatic)
+        local text = syncPopup:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        text:SetPoint("TOPLEFT", 10, -26)
+        text:SetPoint("TOPRIGHT", -10, -26)
+        text:SetJustifyH("LEFT")
+        text:SetText(L["PetTips can't see which ranks you can already teach - the game only reveals that in the Beast Training window. Click the button; the list fills in by itself."])
+
+        local spellName = GetSpellInfo(BEAST_TRAINING_SPELL)
+        local cast = CreateFrame("Button", "PetTipsSyncCastButton", syncPopup,
+            "SecureActionButtonTemplate,UIPanelButtonTemplate")
+        cast:SetSize(146, 22)
+        cast:SetPoint("BOTTOMLEFT", 10, 10)
+        cast:SetText(spellName or "?")
+        cast:SetAttribute("type", "spell")
+        cast:SetAttribute("spell", spellName)
+        cast:RegisterForClicks("AnyUp")
+
+        local later = CreateFrame("Button", nil, syncPopup, "UIPanelButtonTemplate")
+        later:SetSize(70, 22)
+        later:SetPoint("BOTTOMRIGHT", -10, 10)
+        later:SetText(L["Later"])
+        later:SetScript("OnClick", function()
+            syncPopupDismissed = true
+            syncPopup:Hide()
+        end)
+
+        -- craft window opening = mission accomplished; the popup's own
+        -- frame is insecure, so hiding it is legal even in combat
+        syncPopup:RegisterEvent("CRAFT_SHOW")
+        syncPopup:SetScript("OnEvent", function(self) self:Hide() end)
+    end
+    syncPopup:Show()
+end
+
+local function MaybeShowSyncPopup()
+    if not ns.isWarlock and not ns.chardb.scannedBeastTraining
+        and not syncPopupDismissed then
+        ShowSyncPopup()
+    end
+end
+
+-- clicking the sync note row re-opens the popup even after "Later"
+ns.ShowBeastSyncPopup = function()
+    syncPopupDismissed = false
+    ShowSyncPopup()
 end
 
 -- ---------------------------------------------------------------- overlay
@@ -498,6 +719,7 @@ local function ApplyOverlay()
         BuildDisplayList()
         overlay:Show()
         RefreshRows()
+        MaybeShowSyncPopup()
     else
         overlay:Hide()
         if hiddenByUs and not InCombatLockdown() then
@@ -519,9 +741,10 @@ local function CreateUI()
     -- only) - the SAME position in both book modes, so the tab never jumps
     -- when switching between the spellbook and the pet book
     tab:SetPoint("TOPLEFT", _G["SpellBookSkillLineTab" .. (MAX_SKILLLINE_TABS - 2)], "TOPLEFT", 0, 0)
-    local icon = select(3, GetSpellInfo(BEAST_TRAINING_SPELL))
+    -- warlocks get the Summon Imp icon (there is no Beast Training spell)
+    local icon = select(3, GetSpellInfo(ns.isWarlock and 688 or BEAST_TRAINING_SPELL))
     tab:SetNormalTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-    tab.tooltip = L["Pet Training"]
+    tab.tooltip = ns.isWarlock and L["Demon Training"] or L["Pet Training"]
     tab:Hide()
     -- replaces the template's skill-line OnClick
     tab:SetScript("OnClick", function(self)
@@ -599,13 +822,17 @@ local function CreateUI()
         end)
         return btn
     end
-    local tamingButton = CreateFilterButton("taming", L["Taming"], search, 1)
-    local trainerButton = CreateFilterButton("trainer", L["Trainer"], tamingButton, 2)
+    -- warlock demons learn everything from grimoires - no source split
+    local filterAnchor = search
+    if not ns.isWarlock then
+        local tamingButton = CreateFilterButton("taming", L["Taming"], search, 1)
+        filterAnchor = CreateFilterButton("trainer", L["Trainer"], tamingButton, 2)
+    end
 
     -- ability filter: gear button opening a checklist with one entry per
     -- ability (no ranks); unticked abilities disappear from every list.
     -- Persisted account-wide in PetTipsDB.hiddenAbilities.
-    local hidePopup, popupChecks
+    local hidePopup, popupChecks, hideButton
     local function BuildHidePopup()
         hidePopup = CreateFrame("Frame", "PetTipsAbilityFilter", overlay, "BackdropTemplate")
         hidePopup:SetFrameStrata("DIALOG")
@@ -661,13 +888,16 @@ local function CreateUI()
             popupChecks[#popupChecks + 1] = cb
         end
         hidePopup:SetSize(8 + 2 * colW + 8, 24 + perCol * rowH + 10)
-        hidePopup:SetPoint("TOPRIGHT", trainerButton, "BOTTOMRIGHT", 20, -4)
+        -- anchored to the overlay, not the cog button: the cog sits far
+        -- left on warlocks (no filter buttons), which would push a
+        -- right-anchored popup out of the book's left edge
+        hidePopup:SetPoint("TOPRIGHT", overlay, "TOPRIGHT", -39, -60)
         hidePopup:Hide()
     end
 
-    local hideButton = CreateFrame("Button", nil, overlay)
+    hideButton = CreateFrame("Button", nil, overlay)
     hideButton:SetSize(22, 22)
-    hideButton:SetPoint("LEFT", trainerButton, "RIGHT", 2, 0)
+    hideButton:SetPoint("LEFT", filterAnchor, "RIGHT", 2, 0)
     hideButton:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
     hideButton:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     hideButton:SetScript("OnEnter", function(self)
@@ -716,6 +946,8 @@ local function CreateUI()
         -- leaving the view always closes the ability-filter popup, or it
         -- would silently reappear with the overlay (it is a child frame)
         if hidePopup then hidePopup:Hide() end
+        -- the sync popup belongs to the view too - don't leave it floating
+        if syncPopup then syncPopup:Hide() end
         -- US-13: the family selection lives only while the view is open
         familySelection = nil
     end)
@@ -764,6 +996,6 @@ function ns.UpdateTrainingTab()
 end
 
 ns.OnLogin(function()
-    if ns.playerClass ~= "HUNTER" then return end
+    if ns.playerClass ~= "HUNTER" and ns.playerClass ~= "WARLOCK" then return end
     CreateUI()
 end)

@@ -1,12 +1,19 @@
 # PetTips
 
-**What can your pet learn — right now, later, and from which beast?**
+**What can your pet learn — right now, later, and from which beast (or
+grimoire)?**
 
-PetTips is a hunter addon for WoW Classic Era / Hardcore that merges BOTH
-ways of learning pet abilities — **pet trainers** (for money) and **taming
-wild beasts** (learn the skill, teach it to every future pet) — into one
-WhatsTraining-style list inside your spellbook, and tells you exactly
-which mobs to tame for the rest.
+PetTips is a hunter **and warlock** addon for WoW Classic Era / Hardcore.
+
+For **hunters** it merges BOTH ways of learning pet abilities — **pet
+trainers** (for money) and **taming wild beasts** (learn the skill, teach
+it to every future pet) — into one WhatsTraining-style list inside your
+spellbook, and tells you exactly which mobs to tame for the rest.
+
+For **warlocks** the same list covers your demons: every **grimoire** your
+Imp, Voidwalker, Succubus and Felhunter can learn, with price and required
+level, plus tooltip hints on the grimoires themselves so you never buy a
+rank your demon already knows.
 
 ## The training list
 
@@ -31,6 +38,26 @@ qualifies, orange while only you do, red when neither. Filter buttons
 narrow the list to taming or trainer sources; the search box filters by
 name.
 
+## Warlocks: demon training
+
+On a warlock the same tab lists your demons' abilities instead. Classic
+demon trainers are **vendors** — every trainable rank is a grimoire item —
+so the sections become:
+
+- **Available now** — the highest rank per ability you can buy at your
+  level (lower ranks a better one would replace are skipped — no wasted
+  gold), with the grimoire price, red while you can't afford it. A total
+  ("Grimoires to buy") shows what the next trainer visit costs.
+- **Needs your level** — everything later, tagged **(grimoire)** or
+  **(with the demon)** for the ranks a demon simply comes with.
+- **Known by pet** — what the demon already knows.
+
+The family selector browses your other demons; rank tooltips name the
+exact grimoire and price. And when you hover a grimoire anywhere — at the
+demon trainer, in your bags, in chat links — PetTips says whether your
+demon **already knows** that rank (green), **still needs** it (red), or
+has a **higher rank** already (gray).
+
 ## Which mob teaches this?
 
 Hover any taming rank — in the list or the optional Beast Training side
@@ -50,7 +77,9 @@ is new — one glance answers "is this tame worth it?".
 What you can already teach is read from the game itself: opening Beast
 Training (or a pet trainer) syncs the addon's cache, and skills learned
 from a tamed pet are picked up the moment the game announces them. Until
-the first sync the list says so honestly instead of guessing.
+the first sync the list says so honestly instead of guessing. On a
+warlock, each demon's known ranks are recorded while it is summoned — so
+summon a demon once and the addon remembers its books forever.
 
 ## Configuration
 
@@ -62,18 +91,21 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
 - **Show missing-ranks panel at Beast Training** — docks a "what's still
   missing" panel to the trainer window (default off).
 - **Beast tooltips** — the teach-lines on enemy beasts.
+- **Grimoire tooltip hints** — the known/missing lines on grimoire items
+  (warlock).
 - **Teaching mobs listed per ability** — 3-25 tooltip lines before
   "+N more" (in-zone mobs are never hidden by the cap).
 
 ## Data & compatibility
 
-- Complete Classic Era catalogue: **21 abilities, 111 ranks, 297 teaching
-  beasts**, with training point costs, pet level requirements and trainer
-  prices — compiled from the game client's own data, Petopia and the
-  original 1.12 trainer lists, cross-checked against each other.
+- Complete Classic Era catalogue: **21 hunter abilities, 111 ranks, 297
+  teaching beasts** plus **16 demon abilities, 63 ranks, 59 grimoires**,
+  with training point costs, level requirements and prices — compiled
+  from the game client's own data, Petopia and the original 1.12 trainer
+  lists, cross-checked against each other.
 - Plays nice with **WhatsTraining**: the tabs share the spellbook edge
   without overlapping, and opening one view closes the other.
-- Hunter-only by design — completely inert on other classes.
+- Hunter- and warlock-only by design — completely inert on other classes.
 - Ability, family and zone matching is ID-based and works on every client
   language — zone names display localized and the in-zone highlight works
   on all locales. Mob names are localized live from the game server and

@@ -3,3 +3,4 @@ package-as: PetTips
 ignore:
     - README.md
     - Generate-PetTipsData.ps1
+    - Generate-WarlockPetData.ps1
