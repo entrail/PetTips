@@ -51,6 +51,17 @@ test("hunter scan: LEARNED_SPELL_IN_TAB caches a taming-learned rank", function(
     assertFalse(B.ns.chardb.knownTeach[133] or false)
 end)
 
+test("TBC: boots without LEARNED_SPELL_IN_TAB, renamed event still caches", function()
+    -- the TBC client throws on the old event name (mocked the same way);
+    -- a failed registration used to kill the whole login chain
+    local BH = T.boot("HUNTER", nil, "TBC")
+    BH.m.Fire("LEARNED_SPELL_IN_SKILL_LINE", 17256) -- Bite 3
+    assertTrue(BH.ns.chardb.knownTeach[17256], "hunter renamed event cached")
+    local BW = T.boot("WARLOCK", nil, "TBC")
+    BW.m.Fire("LEARNED_SPELL_IN_SKILL_LINE", 30213) -- Felguard Cleave 1
+    assertTrue(BW.ns.chardb.knownTeach[30213], "warlock renamed event cached")
+end)
+
 test("warlock sync: a summoned demon's ranks are recorded", function()
     local B = T.boot("WARLOCK")
     B.m.state.petFamily = "Imp"

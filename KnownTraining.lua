@@ -13,11 +13,27 @@ local L = ns.L
 --    offered FOR MONEY, only category "used" means already learned.
 -- GetTrainerServiceSpellLink does NOT exist on Era (verified in game), so
 -- services/crafts are resolved by localized name + rank digit.
--- Additionally LEARNED_SPELL_IN_TAB is watched: if the game reports a
+-- Additionally the learned-spell event is watched: if the game reports a
 -- learned spell whose ID is one of our ability ranks (taming learn), it
 -- is cached immediately.
 -- Cache: PetTipsCharDB.knownTeach; chardb.scannedBeastTraining marks that
 -- Beast Training was scanned at least once.
+
+-- Era 1.15 still has LEARNED_SPELL_IN_TAB; the TBC Anniversary 2.5.6
+-- client runs a NEWER engine that removed it in favor of the renamed
+-- LEARNED_SPELL_IN_SKILL_LINE (registering the old name THROWS there -
+-- found in game 2026-07-21, it silently killed the whole login chain
+-- before Core isolated callback errors). Both carry the spellID first,
+-- so register whichever the client knows and treat them identically.
+local function RegisterLearnedSpell(frame)
+    if not pcall(frame.RegisterEvent, frame, "LEARNED_SPELL_IN_TAB") then
+        frame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+    end
+end
+
+local function IsLearnedSpellEvent(event)
+    return event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE"
+end
 
 -- localized ability name -> ability entry (rebuilt per scan; GetSpellInfo
 -- can return nil early after login)
@@ -300,7 +316,7 @@ function ns.TrainerScanDebug()
     nameToAbility = nil
     local numCrafts = GetNumCrafts and GetNumCrafts() or 0
     print(string.format("PetTips debug: craft window: %d crafts", numCrafts))
-    for i = 1, math.min(numCrafts, 60) do
+    for i = 1, math.min(numCrafts, 100) do
         local name, rankText, craftType, _, _, tp, reqLevel = GetCraftInfo(i)
         local entry = ResolveRank(name, rankText)
         print(string.format("  craft %d: %s | %s | %s | tp=%s | lvl=%s | spell=%s",
@@ -310,7 +326,7 @@ function ns.TrainerScanDebug()
 
     local numServices = GetNumTrainerServices() or 0
     print(string.format("PetTips debug: trainer window: %d services", numServices))
-    for i = 1, math.min(numServices, 60) do
+    for i = 1, math.min(numServices, 100) do
         local name, rankText, category = GetTrainerServiceInfo(i)
         local cost = GetTrainerServiceCost and GetTrainerServiceCost(i)
         local entry = ResolveRank(name, rankText)
@@ -418,10 +434,10 @@ ns.OnLogin(function()
     local watcher = CreateFrame("Frame")
     watcher:RegisterUnitEvent("UNIT_PET", "player")
     watcher:RegisterEvent("SPELLS_CHANGED")
-    watcher:RegisterEvent("LEARNED_SPELL_IN_TAB")
+    RegisterLearnedSpell(watcher)
     watcher:SetScript("OnEvent", function(_, event, arg1)
         eventLog[event] = (eventLog[event] or 0) + 1
-        if event == "LEARNED_SPELL_IN_TAB" then
+        if IsLearnedSpellEvent(event) then
             local entry = arg1 and ns.ABILITY_BY_SPELL[arg1]
             if entry and not ns.chardb.knownTeach[arg1] then
                 ns.chardb.knownTeach[arg1] = true
@@ -466,7 +482,7 @@ ns.OnLogin(function()
     watcher:RegisterEvent("TRAINER_SHOW")
     watcher:RegisterEvent("TRAINER_UPDATE")
     watcher:RegisterEvent("TRAINER_CLOSED")
-    watcher:RegisterEvent("LEARNED_SPELL_IN_TAB")
+    RegisterLearnedSpell(watcher)
     watcher:SetScript("OnEvent", function(_, event, arg1)
         eventLog[event] = (eventLog[event] or 0) + 1
         if event == "CRAFT_SHOW" or event == "CRAFT_UPDATE" then
@@ -477,7 +493,7 @@ ns.OnLogin(function()
             ScanTrainer()
         elseif event == "TRAINER_CLOSED" then
             announcedTrainer = false
-        elseif event == "LEARNED_SPELL_IN_TAB" then
+        elseif IsLearnedSpellEvent(event) then
             local entry = arg1 and ns.ABILITY_BY_SPELL[arg1]
             if entry and not ns.chardb.knownTeach[arg1] then
                 ns.chardb.knownTeach[arg1] = true

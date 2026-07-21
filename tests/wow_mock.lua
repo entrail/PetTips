@@ -23,7 +23,16 @@ end
 local M -- forward (frames need the registry)
 
 local frameMethods = {}
-function frameMethods.RegisterEvent(self, e) self.__events[e] = true end
+function frameMethods.RegisterEvent(self, e)
+    -- The TBC Anniversary client (newer engine than Era 1.15) removed the
+    -- old LEARNED_SPELL_IN_TAB event name and RegisterEvent THROWS on it
+    -- (seen in game 2026-07-21). Mirror that in TBC boots so the addon's
+    -- fallback to LEARNED_SPELL_IN_SKILL_LINE is really exercised.
+    if e == "LEARNED_SPELL_IN_TAB" and M.WOW_PROJECT_ID == 5 then
+        error('Frame:RegisterEvent(): Attempt to register unknown event "' .. e .. '"')
+    end
+    self.__events[e] = true
+end
 function frameMethods.RegisterUnitEvent(self, e) self.__events[e] = true end
 function frameMethods.UnregisterEvent(self, e) self.__events[e] = nil end
 function frameMethods.UnregisterAllEvents(self) self.__events = {} end

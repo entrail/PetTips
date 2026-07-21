@@ -1,4 +1,4 @@
-## Interface: 11508
+## Interface: 20506
 ## Title: PetTips
 ## Notes: Pet training overview for hunters and warlocks: what your pet can learn now and later, from trainers, taming or grimoires.
 ## Author: Entrail09
@@ -12,10 +12,10 @@ Locales\deDE.lua
 Locales\frFR.lua
 Locales\esES.lua
 Locales\ptBR.lua
-Data\Vanilla\FamilyData.lua
-Data\Vanilla\PetAbilitiesData.lua
-Data\Vanilla\TameMobsData.lua
-Data\Vanilla\DemonAbilitiesData.lua
+Data\TBC\FamilyData.lua
+Data\TBC\PetAbilitiesData.lua
+Data\TBC\TameMobsData.lua
+Data\TBC\DemonAbilitiesData.lua
 KnownTraining.lua
 TrainingList.lua
 BeastTooltips.lua

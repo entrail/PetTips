@@ -61,6 +61,15 @@ test("CanSummonDemonFamily follows the known summon spells", function()
     assertFalse(W.ns.CanSummonDemonFamily(1), "hunter family is never summonable")
 end)
 
+test("TBC warlock: Felguard resolves and gates on Summon Felguard", function()
+    local W = T.boot("WARLOCK", nil, "TBC")
+    W.m.state.petFamily = "Felguard"
+    assertEqual(W.ns.GetPetFamilyId(), 29)
+    assertFalse(W.ns.CanSummonDemonFamily(29), "no Demonology talent yet")
+    W.m.state.playerSpells[30146] = true -- Summon Felguard
+    assertTrue(W.ns.CanSummonDemonFamily(29), "Felguard summonable with the talent")
+end)
+
 test("zone helpers: localized names, fallback, player zone keys", function()
     local H = T.boot("HUNTER")
     local m, ns = H.m, H.ns

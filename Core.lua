@@ -2,6 +2,10 @@ local ADDON_NAME, ns = ...
 
 ns.version = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
 
+-- Client flavor: the right Data/<flavor> files are picked by the per-
+-- flavor .toc; this flag is for the few runtime differences beyond data.
+ns.isTBC = WOW_PROJECT_ID == (WOW_PROJECT_BURNING_CRUSADE_CLASSIC or 5)
+
 -- Localization: all user-facing text goes through ns.L["English text"].
 -- English is the key and the fallback; locale files can override entries.
 ns.L = setmetatable({}, { __index = function(_, key) return key end })
@@ -87,7 +91,7 @@ function ns.NewDemonAbilityDB()
 end
 
 -- Which demons this warlock can have at all: the summon spells are the
--- exact, locale-safe signal (Classic Era spell IDs; 713 = Summon Incubus
+-- exact, locale-safe signal (same IDs on Era and TBC; 713 = Summon Incubus
 -- on realms that have it, same family data as the Succubus). A demon
 -- that cannot be summoned cannot have learned any grimoire either -
 -- using one requires that demon to be out - so "can't summon" always
@@ -97,6 +101,7 @@ local DEMON_SUMMON_SPELLS = {
     [16] = { 697 },      -- Voidwalker
     [17] = { 712, 713 }, -- Succubus / Incubus
     [15] = { 691 },      -- Felhunter
+    [29] = { 30146 },    -- Felguard (TBC only: 41-point Demonology talent)
 }
 
 function ns.CanSummonDemonFamily(famId)
@@ -231,6 +236,20 @@ local initCallbacks, loginCallbacks = {}, {}
 function ns.OnInit(fn) table.insert(initCallbacks, fn) end
 function ns.OnLogin(fn) table.insert(loginCallbacks, fn) end
 
+-- One failing module must not keep the ones after it from loading (a
+-- KnownTraining error would otherwise silently eat the whole training
+-- list UI). Errors still reach the default error handler, so BugSack /
+-- scriptErrors show them. In the headless tests CallErrorHandler does
+-- not exist - rethrow so a callback error still fails the test loudly.
+local function RunCallbacks(list)
+    for _, fn in ipairs(list) do
+        local ok, err = pcall(fn)
+        if not ok then
+            if CallErrorHandler then CallErrorHandler(err) else error(err, 0) end
+        end
+    end
+end
+
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
@@ -245,7 +264,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         if type(PetTipsCharDB.knownTeach) ~= "table" then PetTipsCharDB.knownTeach = {} end
         if type(PetTipsCharDB.syncedDemonFams) ~= "table" then PetTipsCharDB.syncedDemonFams = {} end
         ns.chardb = PetTipsCharDB
-        for _, fn in ipairs(initCallbacks) do fn() end
+        RunCallbacks(initCallbacks)
     elseif event == "PLAYER_LOGIN" then
         ns.playerClass = select(2, UnitClass("player"))
         -- Warlocks reuse the hunter list code: point the generic tables at
@@ -257,7 +276,7 @@ frame:SetScript("OnEvent", function(self, event, arg1)
             ns.PET_FAMILIES = ns.DEMON_FAMILIES
             ns.FAMILY_BY_NAME = ns.DEMON_FAMILY_BY_NAME
         end
-        for _, fn in ipairs(loginCallbacks) do fn() end
+        RunCallbacks(loginCallbacks)
     end
 end)
 

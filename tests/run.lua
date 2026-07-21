@@ -11,32 +11,42 @@ local Loader = dofile(base .. "tests/loader.lua")
 local buildMocks = dofile(base .. "tests/wow_mock.lua")
 
 -- .toc load order (locales included: they return early on enUS but must
--- at least parse; a syntax error there fails the boot = a test failure)
-local FILES = {
-    "Core.lua",
-    "Locales/deDE.lua",
-    "Locales/frFR.lua",
-    "Locales/esES.lua",
-    "Locales/ptBR.lua",
-    "Data/Vanilla/FamilyData.lua",
-    "Data/Vanilla/PetAbilitiesData.lua",
-    "Data/Vanilla/TameMobsData.lua",
-    "Data/Vanilla/DemonAbilitiesData.lua",
-    "KnownTraining.lua",
-    "TrainingList.lua",
-    "BeastTooltips.lua",
-    "Options.lua",
-}
+-- at least parse; a syntax error there fails the boot = a test failure).
+-- The data folder is the per-flavor split of the real tocs
+-- (PetTips_Vanilla.toc / PetTips_TBC.toc).
+local function tocFiles(flavor)
+    return {
+        "Core.lua",
+        "Locales/deDE.lua",
+        "Locales/frFR.lua",
+        "Locales/esES.lua",
+        "Locales/ptBR.lua",
+        "Data/" .. flavor .. "/FamilyData.lua",
+        "Data/" .. flavor .. "/PetAbilitiesData.lua",
+        "Data/" .. flavor .. "/TameMobsData.lua",
+        "Data/" .. flavor .. "/DemonAbilitiesData.lua",
+        "KnownTraining.lua",
+        "TrainingList.lua",
+        "BeastTooltips.lua",
+        "Options.lua",
+    }
+end
 
--- boot("HUNTER"|"WARLOCK", setup?) -> { ns, m, env }; setup(m) runs
--- BEFORE the login events so tests can shape the pre-login game state.
-local function boot(class, setup)
+-- boot("HUNTER"|"WARLOCK", setup?, flavor?) -> { ns, m, env }; setup(m)
+-- runs BEFORE the login events so tests can shape the pre-login game
+-- state. flavor "Vanilla" (default) or "TBC" - picks the data files and
+-- the mocked WOW_PROJECT_ID, exactly like the game picks the .toc.
+local function boot(class, setup, flavor)
+    flavor = flavor or "Vanilla"
     local m = buildMocks()
     m.state.class = class
+    m.WOW_PROJECT_CLASSIC = 2
+    m.WOW_PROJECT_BURNING_CRUSADE_CLASSIC = 5
+    m.WOW_PROJECT_ID = (flavor == "TBC") and 5 or 2
     local ns = {}
     local env = Loader.newEnv(m)
     if setup then setup(m) end
-    Loader.loadAll(base, FILES, ns, env)
+    Loader.loadAll(base, tocFiles(flavor), ns, env)
     m.Fire("ADDON_LOADED", "PetTips")
     m.Fire("PLAYER_LOGIN")
     return { ns = ns, m = m, env = env }

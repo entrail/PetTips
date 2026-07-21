@@ -3,7 +3,9 @@
 **What can your pet learn — right now, later, and from which beast (or
 grimoire)?**
 
-PetTips is a hunter **and warlock** addon for WoW Classic Era / Hardcore.
+PetTips is a hunter **and warlock** addon for WoW Classic Era / Hardcore
+**and** TBC Classic (Anniversary) — the right data loads automatically
+per client.
 
 For **hunters** it merges BOTH ways of learning pet abilities — **pet
 trainers** (for money) and **taming wild beasts** (learn the skill, teach
@@ -11,9 +13,9 @@ it to every future pet) — into one WhatsTraining-style list inside your
 spellbook, and tells you exactly which mobs to tame for the rest.
 
 For **warlocks** the same list covers your demons: every **grimoire** your
-Imp, Voidwalker, Succubus and Felhunter can learn, with price and required
-level, plus tooltip hints on the grimoires themselves so you never buy a
-rank your demon already knows.
+Imp, Voidwalker, Succubus and Felhunter — and on TBC your Felguard — can
+learn, with price and required level, plus tooltip hints on the grimoires
+themselves so you never buy a rank your demon already knows.
 
 ## The training list
 
@@ -101,11 +103,19 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
 
 ## Data & compatibility
 
-- Complete Classic Era catalogue: **21 hunter abilities, 106 ranks, 297
-  teaching beasts** plus **16 demon abilities, 63 ranks, 59 grimoires**,
-  with training point costs, level requirements and prices — compiled
-  from the game client's own data, Petopia and the original 1.12 trainer
-  lists, cross-checked against each other.
+- Complete catalogue per game version, compiled from the game client's
+  own data, Petopia and the original trainer lists, cross-checked
+  against each other — with training point costs, level requirements
+  and prices:
+  - **Classic Era**: 21 hunter abilities, 106 ranks, 297 teaching
+    beasts; 16 demon abilities, 63 ranks, 59 grimoires.
+  - **TBC Anniversary**: 27 hunter abilities, 137 ranks, 363 teaching
+    beasts (including the new Outland families up to the Warp Stalker's
+    Warp); 21 demon abilities, 87 ranks, 83 grimoires including every
+    Felguard book.
+- Runs on **Classic Era 1.15** (including Hardcore and Anniversary
+  realms) and **TBC Classic Anniversary 2.5** from one codebase — the
+  right data loads automatically per client.
 - Plays nice with **WhatsTraining**: the tabs share the spellbook edge
   without overlapping, and opening one view closes the other.
 - Hunter- and warlock-only by design — completely inert on other classes.
@@ -122,7 +132,6 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
   welcome!
 - **Clickable mob browser** (a window per ability instead of the tooltip
   list) is planned; the data is already in place.
-- **TBC support** is prepared in the data layout but not built yet.
 - The Beast Training window only reveals ranks for your current pet's
   family, so the known-ranks cache completes over a few visits with
   different pets — everything else self-corrects as you play.

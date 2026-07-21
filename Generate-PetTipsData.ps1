@@ -1,10 +1,20 @@
-# Generates PetTips Data/Vanilla/*.lua from Petopia (abilities.html) joined
-# with the 1.15 client DB (wago.tools CSVs). Petopia is the authority for
+# Generates PetTips Data/<flavor>/*.lua from Petopia (abilities.html) joined
+# with the matching client DB (wago.tools CSVs). Petopia is the authority for
 # obtainability/source/mobs; the client DB for spell IDs, rank order, TP
 # costs and family availability. Mismatches are reported, not silently fixed.
+#
+# -Flavor Vanilla: Petopia Classic + 1.15 CSVs + cmangos classic-db trainer rows.
+# -Flavor TBC:     Petopia classic_bc + 2.5.6 (wow_anniversary) CSVs + cmangos
+#                  tbc-db trainer rows (npc_trainer AND npc_trainer_template
+#                  concatenated into npc_trainer_inserts.sql - same columns).
+#                  The 2.5.6 client dropped the CharacterPoints_1 (TP cost)
+#                  column from SkillLineAbility; put the 2.5.4.44833 build's
+#                  SkillLineAbility.csv next to the inputs as
+#                  SkillLineAbility_TP.csv - TP costs are joined from it.
+param([string]$Flavor = "Vanilla", [string]$InputDir = $PSScriptRoot)
 $ErrorActionPreference = "Stop"
-$sp  = $PSScriptRoot
-$out = "D:\Development\WoW Addons\PetTips\Data\Vanilla"
+$sp  = $InputDir
+$out = "D:\Development\WoW Addons\PetTips\Data\$Flavor"
 New-Item -ItemType Directory -Force $out | Out-Null
 $report = New-Object System.Collections.Generic.List[string]
 
@@ -29,6 +39,11 @@ foreach ($r in (Import-Csv "$sp\Map.csv")) {
     }
 }
 $instIdByName["The Temple of Atal'Hakkar"] = 109   # petopia's name; Map.db2 calls 109 "Sunken Temple"
+# TBC dungeon/raid names petopia uses vs. Map.db2's:
+$instIdByName["Old Hillsbrad Foothills"] = 560     # "The Escape From Durnholde"
+$instIdByName["The Botanica"] = 553                # "Tempest Keep: The Botanica"
+$instIdByName["Sethekk Halls"] = 556               # "Auchindoun: Sethekk Halls"
+$instIdByName["Tempest Keep: The Eye"] = 550       # "Tempest Keep" (raid)
 
 # petopia zone string -> balanced display text + zone ID list. The
 # "(Dungeon"/"(Raid" suffix arrives unbalanced because the mob regex
@@ -53,9 +68,12 @@ function Resolve-Zones([string]$zone) {
 $famName  = @{}   # famId -> enUS name
 $famLine  = @{}   # famId -> family skill line
 $lineFam  = @{}   # skill line -> famId
+# CreatureFamily also covers warlock demons - exclude their skill lines
+# (they collide by spell name, e.g. TBC Felguard "Avoidance" on line 761).
+$demonLines = @{ 188 = $true; 189 = $true; 204 = $true; 205 = $true; 761 = $true }
 foreach ($f in $fam) {
     $famName[[int]$f.ID] = $f.Name_lang
-    if ([int]$f.SkillLine_0 -gt 0) {
+    if ([int]$f.SkillLine_0 -gt 0 -and -not $demonLines.ContainsKey([int]$f.SkillLine_0)) {
         $famLine[[int]$f.ID] = [int]$f.SkillLine_0
         $lineFam[[int]$f.SkillLine_0] = [int]$f.ID
     }
@@ -66,6 +84,21 @@ $GENERIC = 270
 $famByNorm = @{}
 foreach ($id in $famLine.Keys) {
     $famByNorm[($famName[$id] -replace '\s','').ToLower()] = $id
+}
+
+# TP costs: SkillLineAbility.CharacterPoints_1 where the build still has it;
+# otherwise (2.5.5+ anniversary schema) joined by spell ID from a companion
+# SkillLineAbility_TP.csv taken from the last build that did (2.5.4.44833).
+$tpBySpell = $null
+if ($sla.Count -gt 0 -and -not $sla[0].PSObject.Properties['CharacterPoints_1']) {
+    if (-not (Test-Path "$sp\SkillLineAbility_TP.csv")) {
+        throw "SkillLineAbility.csv has no CharacterPoints_1 column and $sp\SkillLineAbility_TP.csv is missing"
+    }
+    $tpBySpell = @{}
+    foreach ($r in (Import-Csv "$sp\SkillLineAbility_TP.csv")) {
+        $tpBySpell[[int]$r.Spell] = [int]$r.CharacterPoints_1
+    }
+    $report.Add("INFO: TP costs joined from SkillLineAbility_TP.csv ($($tpBySpell.Count) spells)")
 }
 
 # rows on pet skill lines, deduped per (spell), remembering which lines carry it
@@ -79,7 +112,12 @@ foreach ($r in $sla) {
     if (-not $spellLines.ContainsKey($s)) { $spellLines[$s] = @{} }
     $spellLines[$s][$line] = $true
     $spellSup[$s] = [int]$r.SupercedesSpell
-    $spellTP[$s]  = [int]$r.CharacterPoints_1
+    if ($null -ne $tpBySpell) {
+        if ($tpBySpell.ContainsKey($s)) { $spellTP[$s] = $tpBySpell[$s] }
+        else { $spellTP[$s] = -1; $report.Add("TP: spell $s ($($nameById[$s])) missing from SkillLineAbility_TP.csv") }
+    } else {
+        $spellTP[$s] = [int]$r.CharacterPoints_1
+    }
 }
 
 # ordered rank chain for one ability name
@@ -227,7 +265,8 @@ foreach ($a in $abilities) {
 
     for ($k = 0; $k -lt [Math]::Min($chain.Count, $a.ranks.Count); $k++) {
         $r = $a.ranks[$k]; $spell = $chain[$k]
-        if ($spellTP[$spell] -ne $r.tp) { $report.Add("TP: $($r.rname) petopia $($r.tp) != DB $($spellTP[$spell]) (using DB)") }
+        if ($spellTP[$spell] -lt 0) { $spellTP[$spell] = $r.tp }   # not in TP csv: trust petopia
+        elseif ($spellTP[$spell] -ne $r.tp) { $report.Add("TP: $($r.rname) petopia $($r.tp) != DB $($spellTP[$spell]) (using DB)") }
         $rankNo = $k + 1
         if ($r.rname -match '(\d+)$' -and [int]$Matches[1] -ne $rankNo) { $report.Add("RANK: $($r.rname) ordinal != chain position $rankNo") }
         $money = 0
@@ -259,7 +298,15 @@ foreach ($a in $abilities) {
 $usedFams = @{}
 foreach ($a in $abilities) { if ($a.fams) { foreach ($f in $a.fams) { $usedFams[$f] = $true } } }
 foreach ($m in $mobDict.Values) { $usedFams[$m.fam] = $true }
-# every tameable petopia family, even ones without special abilities (e.g. none missing normally)
+if ($Flavor -eq "TBC") {
+    # every tameable family (SkillLine_1 == 270), even without any family
+    # ability: TBC Sporebats learn only generic abilities, but the family
+    # must still resolve so the list filters correctly. NOT done on Vanilla,
+    # where the same rule would pull in SoD-only families (Core Hound etc.).
+    foreach ($f in $fam) {
+        if ([int]$f.SkillLine_1 -eq 270) { $usedFams[[int]$f.ID] = $true }
+    }
+}
 $famIdsSorted = @($usedFams.Keys | Sort-Object)
 
 $locNames = @{}   # famId -> set of localized names (all locales incl enUS)
@@ -276,8 +323,10 @@ foreach ($loc in @("deDE","frFR","esES","esMX","ptBR","ruRU","koKR","zhCN","zhTW
 function Esc([string]$s) { return $s.Replace('\', '\\').Replace('"', '\"') }
 
 $nl = "`n"
+$flavorName = if ($Flavor -eq "TBC") { "TBC Classic" } else { "Classic Era" }
+$clientVer  = if ($Flavor -eq "TBC") { "2.5" } else { "1.15" }
 $famLua = "local ADDON_NAME, ns = ...$nl$nl" +
-"-- Hunter pet families (CreatureFamily IDs from the 1.15 client DB).$nl" +
+"-- Hunter pet families (CreatureFamily IDs from the $clientVer client DB).$nl" +
 "-- FAMILY_BY_NAME maps the localized UnitCreatureFamily(`"pet`") string of$nl" +
 "-- every client locale back to the family ID (locale-safe detection).$nl" +
 "-- Generated by Generate-PetTipsData.ps1 - do not hand-edit.$nl$nl" +
@@ -292,16 +341,16 @@ $famLua += "}$nl"
 
 # ---------------------------------------------------------------- abilities file
 $abLua = "local ADDON_NAME, ns = ...$nl$nl" +
-"-- Pet ability ranks for Classic Era: every rank a hunter pet can learn,$nl" +
+"-- Pet ability ranks for ${flavorName}: every rank a hunter pet can learn,$nl" +
 "-- with training point cost, required pet level, usable families and the$nl" +
-"-- learning source. Spell IDs / rank order / TP costs from the 1.15 client$nl" +
-"-- DB (SkillLineAbility), obtainability and sources from Petopia Classic.$nl" +
+"-- learning source. Spell IDs / rank order / TP costs from the $clientVer client$nl" +
+"-- DB (SkillLineAbility), obtainability and sources from Petopia.$nl" +
 "-- Display names/icons come from GetSpellInfo(spellId) at runtime.$nl" +
 "--$nl" +
 "-- ability(key, families): families = CreatureFamily IDs (nil = all).$nl" +
 "-- rank(spellId, rank, petLevel, tpCost, source, moneyCost): source `"t`" =$nl" +
 "-- pet trainer, `"w`" = taming wild beasts, `"tw`" = both, `"n`" = no known$nl" +
-"-- source. moneyCost in copper (cmangos 1.12 npc_trainer; 0 for taming).$nl$nl" +
+"-- source. moneyCost in copper (cmangos npc_trainer; 0 for taming).$nl$nl" +
 "local ability, rank = ns.NewPetAbilityDB()$nl$nl" +
 "-- DATA_START (generated by Generate-PetTipsData.ps1; do not hand-edit)$nl" +
 (($abilityOut) -join $nl) + $nl +
