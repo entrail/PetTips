@@ -1,8 +1,8 @@
-## Interface: 11508
+## Interface: 11509
 ## Title: PetTips
 ## Notes: Pet training overview for hunters and warlocks: what your pet can learn now and later, from trainers, taming or grimoires.
 ## Author: Entrail09
-## Version: 1.2.0
+## Version: 1.2.1
 ## SavedVariables: PetTipsDB
 ## SavedVariablesPerCharacter: PetTipsCharDB
 ## X-Curse-Project-ID: 1617250
