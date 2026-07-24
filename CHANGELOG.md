@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.2 (2026-07-24)
+
+- Maintenance release: release notes now come from a curated changelog
+  instead of raw commit output. No in-game changes.
+
 ## v1.2.1 (2026-07-22)
 
 - Bumped Interface to 11509 for Classic Era 1.15.9.
