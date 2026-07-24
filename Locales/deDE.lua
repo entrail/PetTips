@@ -77,3 +77,11 @@ L["Your demon knows this from the start."] = "Euer Dämon beherrscht dies von An
 -- First-run sync popup (added 1.1.0)
 L["Later"] = "Später"
 L["PetTips can't see which ranks you can already teach - the game only reveals that in the Beast Training window. Click the button; the list fills in by itself."] = "PetTips kann nicht sehen, welche Ränge Ihr bereits lehren könnt - das verrät das Spiel nur im Fenster der Wildtierausbildung. Klickt auf den Knopf; die Liste füllt sich dann von selbst."
+
+-- Family type + tier on beast tooltips (US-51)
+L["Offense"] = "Offensive"
+L["Defense"] = "Defensive"
+L["General"] = "Allgemein"
+L["Tier %s"] = "Wertung %s"
+L["Show family type and tier"] = "Tierfamilien-Typ und Wertung anzeigen"
+L["Also show the pet family's combat type (Offense, Defense or General, from its stat modifiers) and its community tier rating on beast tooltips and on hunter pets - yours and other players'."] = "Zeigt zusätzlich den Kampftyp der Tierfamilie (Offensive, Defensive oder Allgemein, aus ihren Wertemodifikatoren) und ihre Community-Wertung in Wildtier-Tooltips sowie bei Jägerbegleitern - Eurem und denen anderer Spieler."

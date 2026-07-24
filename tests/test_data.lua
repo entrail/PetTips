@@ -91,6 +91,27 @@ for flavor, B in pairs(boots) do
         end
     end)
 
+    test(flavor .. " hunter data: FAMILY_INFO covers every family, valid values", function()
+        local ns = B.H.ns
+        local SPECS = { offense = true, defense = true, general = true }
+        local TIERS = { S = true, A = true, B = true, C = true }
+        for id in pairs(ns.PET_FAMILIES) do
+            local fam = ns.FAMILY_INFO[id]
+            assertTrue(fam, "missing family info " .. id)
+            assertTrue(SPECS[fam.spec], "family " .. id .. " spec " .. tostring(fam.spec))
+            assertTrue(fam.tier == nil or TIERS[fam.tier],
+                "family " .. id .. " tier " .. tostring(fam.tier))
+            for _, k in ipairs({ "health", "armor", "damage" }) do
+                local v = fam[k]
+                assertTrue(type(v) == "number" and v >= 0.85 and v <= 1.15,
+                    "family " .. id .. " " .. k .. " " .. tostring(v))
+            end
+        end
+        for id in pairs(ns.FAMILY_INFO) do
+            assertTrue(ns.PET_FAMILIES[id], "orphan family info " .. id)
+        end
+    end)
+
     test(flavor .. " warlock data: ability/rank/grimoire counts, valid entries", function()
         local ns = B.W.ns
         assertEqual(#ns.DEMON_ABILITIES, pins.demonAbilities, "ability count")
@@ -146,4 +167,26 @@ test("flavor split: isTBC flag and TBC-only content", function()
     -- TBC-only demon: Felguard
     assertEqual(boots.TBC.W.ns.DEMON_FAMILY_BY_NAME["Felguard"], 29, "Felguard on TBC")
     assertEqual(boots.Vanilla.W.ns.DEMON_FAMILIES[29], nil, "no Felguard on Vanilla")
+end)
+
+test("family info: Vanilla tiers pinned to Wowhead's list, TBC untiered", function()
+    local V, TBC = boots.Vanilla.H.ns, boots.TBC.H.ns
+    -- spot pins from the verified table (US-51)
+    assertEqual(V.FAMILY_INFO[2].spec, "offense", "Cat spec")
+    assertEqual(V.FAMILY_INFO[2].tier, "S", "Cat tier")
+    assertEqual(V.FAMILY_INFO[4].spec, "defense", "Bear spec")
+    assertEqual(V.FAMILY_INFO[1].spec, "general", "Wolf spec")
+    -- Gorilla (9) is the ONLY unrated Vanilla family
+    for id in pairs(V.PET_FAMILIES) do
+        if id == 9 then
+            assertEqual(V.FAMILY_INFO[id].tier, nil, "Gorilla must be unrated")
+        else
+            assertTrue(V.FAMILY_INFO[id].tier, "Vanilla family " .. id .. " has no tier")
+        end
+    end
+    -- no verified TBC tier source yet: tier must be nil throughout
+    for id in pairs(TBC.PET_FAMILIES) do
+        assertEqual(TBC.FAMILY_INFO[id].tier, nil, "TBC family " .. id .. " has a tier")
+    end
+    assertEqual(TBC.FAMILY_INFO[31].spec, "offense", "Ravager spec")
 end)

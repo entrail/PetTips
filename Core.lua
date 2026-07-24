@@ -16,6 +16,7 @@ local defaults = {
     enableList = true,         -- spellbook pet tab + training list
     showKnownByPet = true,     -- gray "already known by pet" section
     beastTooltips = true,      -- taught-ability lines on beast tooltips
+    tooltipFamilyInfo = true,  -- family type (offense/defense/general) + tier line
     grimoireTooltips = true,   -- known/missing hints on grimoire item tooltips
     mobLines = 10,             -- teaching mobs listed per ability tooltip
     craftPanel = false,        -- missing-ranks panel next to Beast Training

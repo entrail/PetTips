@@ -2,7 +2,7 @@
 ## Title: PetTips
 ## Notes: Pet training overview for hunters and warlocks: what your pet can learn now and later, from trainers, taming or grimoires.
 ## Author: Entrail09
-## Version: 1.2.2
+## Version: 1.3.0
 ## SavedVariables: PetTipsDB
 ## SavedVariablesPerCharacter: PetTipsCharDB
 ## X-Curse-Project-ID: 1617250
@@ -13,6 +13,7 @@ Locales\frFR.lua
 Locales\esES.lua
 Locales\ptBR.lua
 Data\TBC\FamilyData.lua
+Data\TBC\FamilyInfoData.lua
 Data\TBC\PetAbilitiesData.lua
 Data\TBC\TameMobsData.lua
 Data\TBC\DemonAbilitiesData.lua

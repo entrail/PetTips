@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.3.0 (2026-07-24)
+
+- Beast tooltips now show the pet family's combat classification
+  (Offense / Defense / General) and its S/A/B/C tier grade, colored
+  like the reference tier lists.
+- The line appears on every wild beast of a known pet family — not just
+  ability-teaching mobs — and on hunter pets, both yours and other
+  players'.
+- New option: "Show family type and tier".
+- Translated for deDE, frFR, esES/esMX and ptBR.
+
 ## v1.2.2 (2026-07-24)
 
 - Maintenance release: release notes now come from a curated changelog

@@ -93,6 +93,20 @@ ns.OnInit(function()
     do
         local setting = Settings.RegisterAddOnSetting(
             category,
+            "PetTips_TooltipFamilyInfo",
+            "tooltipFamilyInfo",
+            ns.db,
+            Settings.VarType.Boolean,
+            L["Show family type and tier"],
+            true
+        )
+        Settings.CreateCheckbox(category, setting,
+            L["Also show the pet family's combat type (Offense, Defense or General, from its stat modifiers) and its community tier rating on beast tooltips and on hunter pets - yours and other players'."])
+    end
+
+    do
+        local setting = Settings.RegisterAddOnSetting(
+            category,
             "PetTips_MobLines",
             "mobLines",
             ns.db,
