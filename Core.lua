@@ -8,6 +8,8 @@ ns.isTBC = WOW_PROJECT_ID == (WOW_PROJECT_BURNING_CRUSADE_CLASSIC or 5)
 
 -- Localization: all user-facing text goes through ns.L["English text"].
 -- English is the key and the fallback; locale files can override entries.
+-- A locale omits any entry whose translation equals the English key - the
+-- fallback already serves it, and tests/test_locales.lua rejects no-ops.
 ns.L = setmetatable({}, { __index = function(_, key) return key end })
 
 -- Account-wide settings: behavior should be identical on every character.

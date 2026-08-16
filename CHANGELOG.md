@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.4.0 (2026-08-16)
+
+- Russian (ruRU) translation: the training list, the missing-ranks
+  panel, beast and grimoire tooltips, the chat messages and the whole
+  options panel now speak Russian.
+- Wording follows the Russian client — «Дрессировка», «очки обучения»,
+  «дрессировщик», «наставник демонов», «гримуар».
+
 ## v1.3.0 (2026-07-24)
 
 - Beast tooltips now show the pet family's combat classification

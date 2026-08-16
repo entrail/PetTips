@@ -55,9 +55,7 @@ L["Untick an ability to hide all of its ranks from the list (e.g. the resistance
 L["Usable by: %s"] = "Utilisable par : %s"
 
 -- Warlock demon training (added 1.1.0)
-L["(grimoire)"] = "(grimoire)"
 L["(with the demon)"] = "(avec le démon)"
-L["auto"] = "auto"
 L["Bought grimoires are recorded while that demon is summoned."] = "Les grimoires achetés sont enregistrés pendant que ce démon est invoqué."
 L["Costs %s at a demon trainer."] = "Coûte %s chez un dresseur de démons."
 L["Demon Grimoires (Warlock)"] = "Grimoires de démon (Démoniste)"

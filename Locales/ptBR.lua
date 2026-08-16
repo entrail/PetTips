@@ -57,7 +57,6 @@ L["Usable by: %s"] = "Utilizável por: %s"
 -- Warlock demon training (added 1.1.0)
 L["(grimoire)"] = "(grimório)"
 L["(with the demon)"] = "(com o demônio)"
-L["auto"] = "auto"
 L["Bought grimoires are recorded while that demon is summoned."] = "Grimórios comprados são registrados enquanto esse demônio está invocado."
 L["Costs %s at a demon trainer."] = "Custa %s em um treinador de demônios."
 L["Demon Grimoires (Warlock)"] = "Grimórios de demônio (Bruxo)"

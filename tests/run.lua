@@ -21,6 +21,7 @@ local function tocFiles(flavor)
         "Locales/frFR.lua",
         "Locales/esES.lua",
         "Locales/ptBR.lua",
+        "Locales/ruRU.lua",
         "Data/" .. flavor .. "/FamilyData.lua",
         "Data/" .. flavor .. "/FamilyInfoData.lua",
         "Data/" .. flavor .. "/PetAbilitiesData.lua",
@@ -90,6 +91,7 @@ local SUITE_FILES = {
     "test_sections_warlock.lua",
     "test_knowntraining.lua",
     "test_beasttooltips.lua",
+    "test_locales.lua",
 }
 for _, s in ipairs(SUITE_FILES) do
     currentSuite = s

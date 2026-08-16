@@ -61,7 +61,6 @@ L["Usable by: %s"] = "Utilizable por: %s"
 -- Warlock demon training (added 1.1.0)
 L["(grimoire)"] = "(grimorio)"
 L["(with the demon)"] = "(con el demonio)"
-L["auto"] = "auto"
 L["Bought grimoires are recorded while that demon is summoned."] = "Los grimorios comprados se registran mientras ese demonio está invocado."
 L["Costs %s at a demon trainer."] = "Cuesta %s con un instructor de demonios."
 L["Demon Grimoires (Warlock)"] = "Grimorios de demonio (Brujo)"
@@ -85,7 +84,6 @@ L["PetTips can't see which ranks you can already teach - the game only reveals t
 -- Family type + tier on beast tooltips (US-51)
 L["Offense"] = "Ofensivo"
 L["Defense"] = "Defensivo"
-L["General"] = "General"
 L["Tier %s"] = "Valoración %s"
 L["Show family type and tier"] = "Mostrar tipo y valoración de la familia"
 L["Also show the pet family's combat type (Offense, Defense or General, from its stat modifiers) and its community tier rating on beast tooltips and on hunter pets - yours and other players'."] = "Muestra también el tipo de combate de la familia de mascotas (Ofensivo, Defensivo o General, según sus modificadores de estadísticas) y su valoración de la comunidad en los tooltips de las bestias y de las mascotas de cazador, tanto la tuya como las de otros jugadores."

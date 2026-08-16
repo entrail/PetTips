@@ -2,7 +2,6 @@ local ADDON_NAME, ns = ...
 if GetLocale() ~= "deDE" then return end
 local L = ns.L
 
-L["%d TP"] = "%d TP"
 L["%d TP unspent"] = "%d TP übrig"
 L["(known)"] = "(bekannt)"
 L["(new)"] = "(neu)"
@@ -57,7 +56,6 @@ L["Usable by: %s"] = "Nutzbar von: %s"
 -- Warlock demon training (added 1.1.0)
 L["(grimoire)"] = "(Foliant)"
 L["(with the demon)"] = "(mit dem Dämon)"
-L["auto"] = "auto"
 L["Bought grimoires are recorded while that demon is summoned."] = "Gekaufte Folianten werden erfasst, während der jeweilige Dämon beschworen ist."
 L["Costs %s at a demon trainer."] = "Kostet %s beim Dämonenausbilder."
 L["Demon Grimoires (Warlock)"] = "Dämonenfolianten (Hexenmeister)"
