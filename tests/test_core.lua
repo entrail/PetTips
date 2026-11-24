@@ -97,3 +97,16 @@ test("zone helpers: localized names, fallback, player zone keys", function()
     assertTrue(keys[-36], "instance key")
     assertFalse(keys[1429] or false, "no outdoor key in instance")
 end)
+
+test("SavedVariables session counters increment across boots (load-bug detector)", function()
+    local first = T.boot("HUNTER")
+    assertEqual(first.ns.db.sessions, 1, "fresh account file")
+    assertEqual(first.ns.chardb.sessions, 1, "fresh character file")
+    local again = T.boot("HUNTER", function(m)
+        m.PetTipsDB = { sessions = 3 }
+        m.PetTipsCharDB = { sessions = 7, knownTeach = { [2649] = true } }
+    end)
+    assertEqual(again.ns.db.sessions, 4, "loaded account file counts up")
+    assertEqual(again.ns.chardb.sessions, 8, "loaded character file counts up")
+    assertTrue(again.ns.chardb.knownTeach[2649], "loaded data kept")
+end)

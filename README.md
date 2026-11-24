@@ -3,9 +3,9 @@
 **What can your pet learn — right now, later, and from which beast (or
 grimoire)?**
 
-PetTips is a hunter **and warlock** addon for WoW Classic Era / Hardcore
-**and** TBC Classic (Anniversary) — the right data loads automatically
-per client.
+PetTips is a hunter **and warlock** addon for WoW Classic Era / Hardcore,
+TBC Classic (Anniversary) **and WoW: Forever** — the right data loads
+automatically per client.
 
 For **hunters** it merges BOTH ways of learning pet abilities — **pet
 trainers** (for money) and **taming wild beasts** (learn the skill, teach
@@ -113,9 +113,15 @@ Settings -> Options -> AddOns -> PetTips, or simply `/pettips`:
     beasts (including the new Outland families up to the Warp Stalker's
     Warp); 21 demon abilities, 87 ranks, 83 grimoires including every
     Felguard book.
+  - **WoW: Forever**: 31 hunter abilities, 153 ranks (incl. Fox and the
+    new family specials), 468 teaching beasts — 172 confirmed in game,
+    the rest marked with a gray **?** until confirmed.
 - Runs on **Classic Era 1.15** (including Hardcore and Anniversary
-  realms) and **TBC Classic Anniversary 2.5** from one codebase — the
-  right data loads automatically per client.
+  realms), **TBC Classic Anniversary 2.5** and **WoW: Forever 1.60** from
+  one codebase — the right data loads automatically per client. On
+  Forever the list docks into the new spellbook as its own tab, and a
+  tame collector records what every beast you tame teaches
+  (`/pettips tamelog`).
 - Plays nice with **WhatsTraining**: the tabs share the spellbook edge
   without overlapping, and opening one view closes the other.
 - Hunter- and warlock-only by design — completely inert on other classes.

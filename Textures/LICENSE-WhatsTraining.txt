@@ -1,4 +1,5 @@
-The texture files in this folder (left.blp, right.blp, highlight.blp) are
+The texture files in this folder (left.blp, right.blp, highlight.blp,
+header-mask.tga) are
 taken from the addon "What's Training?" by fusionpit
 (https://github.com/fusionpit/WhatsTraining) and are used and
 redistributed under its MIT license, reproduced below as required.

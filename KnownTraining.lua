@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local L = ns.L
+local api = ns.api
 
 -- Which ability ranks this hunter already knows how to teach. Classic Era
 -- exposes that in two different windows, scanned whenever they open:
@@ -18,6 +19,12 @@ local L = ns.L
 -- is cached immediately.
 -- Cache: PetTipsCharDB.knownTeach; chardb.scannedBeastTraining marks that
 -- Beast Training was scanned at least once.
+--
+-- WoW Forever has NO craft window: Beast Training opens the normal trainer
+-- frame in pet mode (api.IsBeastTrainingTrainer; costs are training
+-- points). That list is read like the Era craft list - every listed rank
+-- is one the hunter knows (ASSUMPTION from the Era behavior, not yet seen
+-- in game: /pettips debug dumps the services with their categories).
 
 -- Era 1.15 still has LEARNED_SPELL_IN_TAB; the TBC Anniversary 2.5.6
 -- client runs a NEWER engine that removed it in favor of the renamed
@@ -26,8 +33,8 @@ local L = ns.L
 -- before Core isolated callback errors). Both carry the spellID first,
 -- so register whichever the client knows and treat them identically.
 local function RegisterLearnedSpell(frame)
-    if not pcall(frame.RegisterEvent, frame, "LEARNED_SPELL_IN_TAB") then
-        frame:RegisterEvent("LEARNED_SPELL_IN_SKILL_LINE")
+    if not api.SafeRegisterEvent(frame, "LEARNED_SPELL_IN_TAB") then
+        api.SafeRegisterEvent(frame, "LEARNED_SPELL_IN_SKILL_LINE")
     end
 end
 
@@ -35,15 +42,15 @@ local function IsLearnedSpellEvent(event)
     return event == "LEARNED_SPELL_IN_TAB" or event == "LEARNED_SPELL_IN_SKILL_LINE"
 end
 
--- localized ability name -> ability entry (rebuilt per scan; GetSpellInfo
--- can return nil early after login)
+-- localized ability name -> ability entry (rebuilt per scan; spell names
+-- can be nil early after login)
 local nameToAbility
 
 local function AbilityByLocalName(name)
     if not nameToAbility then
         nameToAbility = {}
         for _, ability in ipairs(ns.PET_ABILITIES) do
-            local spellName = GetSpellInfo(ability.ranks[1].spell)
+            local spellName = api.GetSpellName(ability.ranks[1].spell)
             if spellName then nameToAbility[spellName] = ability end
         end
     end
@@ -60,6 +67,7 @@ end
 
 local announcedCraft = false
 local announcedTrainer = false
+local announcedSpellbook = false
 local eventLog = {} -- event name -> count, for /pettips debug
 local RefreshSidePanel -- forward declaration (Beast Training side panel, below)
 
@@ -68,6 +76,64 @@ local function KnownCount()
     for _ in pairs(ns.chardb.knownTeach) do total = total + 1 end
     return total
 end
+
+-- What the game reports as LEARNED is the HUNTER-side teach spell (skill
+-- line 261, e.g. Charge Rank 1 = 7370), never the pet spell (7371) our
+-- data is keyed on. Flavors whose data carries teach ids resolve directly;
+-- the others match the learned spell by name + rank text against the pet
+-- abilities (a class spell sharing a pet ability name would be the only
+-- false positive - there is none on Classic).
+local function ResolveLearnedSpell(spellId)
+    local entry = ns.ABILITY_BY_SPELL[spellId]
+        or (ns.ABILITY_BY_TEACH and ns.ABILITY_BY_TEACH[spellId])
+    if entry then return entry end
+    nameToAbility = nil
+    return ResolveRank(api.GetSpellName(spellId), api.GetSpellSubtext(spellId))
+end
+
+-- ------------------------------------------------- spellbook sync (teach ids)
+-- Where the data knows the teach spells (Forever), the hunter's own
+-- spellbook says which ranks can be taught - no window needed. Whether the
+-- client reports the Beast Training line through IsSpellKnown is not yet
+-- verified in game, so the probe result is kept in chardb.teachProbe; a
+-- probe claiming EVERY teach spell is known cannot be right below max
+-- level and is ignored.
+local function SyncTeachSpells()
+    local byTeach = ns.ABILITY_BY_TEACH
+    if not byTeach or not next(byTeach) then return 0 end
+    local known = ns.chardb.knownTeach
+    local total, found, newCount = 0, 0, 0
+    local foundSpells = {}
+    for teachId, entry in pairs(byTeach) do
+        total = total + 1
+        if api.IsPlayerSpell(teachId) then
+            found = found + 1
+            foundSpells[#foundSpells + 1] = entry.spell
+        end
+    end
+    local suspicious = found == total and (UnitLevel("player") or 0) < 60
+    ns.chardb.teachProbe = { build = select(2, GetBuildInfo()), total = total, known = found,
+        suspicious = suspicious or nil, playerLevel = UnitLevel("player") }
+    if found == 0 or suspicious then return 0 end
+    for _, spellId in ipairs(foundSpells) do
+        if not known[spellId] then
+            known[spellId] = true
+            newCount = newCount + 1
+        end
+    end
+    local firstSync = not ns.chardb.scannedBeastTraining
+    ns.chardb.scannedBeastTraining = true
+    if (firstSync or newCount > 0) and not announcedSpellbook then
+        announcedSpellbook = true
+        print(string.format(L["PetTips: synced %d teachable ranks from your spellbook."], KnownCount()))
+    end
+    if newCount > 0 then
+        if ns.RefreshTrainingList then ns.RefreshTrainingList() end
+        if sidePanel and sidePanel:IsShown() then RefreshSidePanel(true) end
+    end
+    return found
+end
+ns.SyncTeachSpells = SyncTeachSpells -- /pettips debug
 
 -- ---------------------------------------------------------- Beast Training
 
@@ -112,18 +178,51 @@ local function ScanTrainer()
     if not numServices or numServices == 0 then return end
     nameToAbility = nil
 
+    -- Forever: Beast Training IS a trainer window (pet mode) and lists the
+    -- ranks the hunter can teach, like the Era craft window does
+    local beastTraining = api.IsBeastTrainingTrainer()
     local known = ns.chardb.knownTeach
-    local newCount = 0
+    local matched, newCount = 0, 0
+    -- raw listing kept per character (Forever beta): what the window
+    -- really offers, with category and TP/money cost per service - readable
+    -- from the SavedVariables file to verify the "listed = known" reading
+    -- of the Beast Training window and the TP costs of the new abilities
+    local dump = { build = select(2, GetBuildInfo()), beastTraining = beastTraining,
+        playerLevel = UnitLevel("player"), petLevel = UnitLevel("pet"), services = {} }
     for i = 1, numServices do
-        local name, rankText, category = GetTrainerServiceInfo(i)
-        local entry = ResolveRank(name, rankText)
-        -- only "used" services are ranks the hunter already bought
-        if entry and category == "used" and not known[entry.spell] then
+        local name, rankText, category = api.GetTrainerService(i)
+        -- exact first: the spell behind the service (Forever tooltip data;
+        -- a teach id or, on an NPC trainer, possibly the pet spell id) -
+        -- then the Classic way, localized name + rank text
+        local serviceSpell = api.GetTrainerServiceSpell(i)
+        local entry = serviceSpell and (ns.ABILITY_BY_SPELL[serviceSpell]
+            or (ns.ABILITY_BY_TEACH and ns.ABILITY_BY_TEACH[serviceSpell]))
+        if not entry then entry = ResolveRank(name, rankText) end
+        if entry then matched = matched + 1 end
+        local cost = GetTrainerServiceCost and GetTrainerServiceCost(i)
+        dump.services[i] = string.format("%s|%s|%s|%s|%s|%s", tostring(name), tostring(rankText),
+            tostring(category), tostring(cost), tostring(entry and entry.spell), tostring(serviceSpell))
+        -- NPC pet trainer: only "used" services are ranks already bought
+        if entry and (beastTraining or category == "used") and not known[entry.spell] then
             known[entry.spell] = true
             newCount = newCount + 1
         end
     end
 
+    if beastTraining then
+        ns.chardb.lastBeastTraining = dump
+        if matched == 0 then return end
+        local firstSync = not ns.chardb.scannedBeastTraining
+        ns.chardb.scannedBeastTraining = true
+        if (firstSync or newCount > 0) and not announcedCraft then
+            announcedCraft = true
+            print(string.format(L["PetTips: Beast Training synced - %d teachable ranks cached."], KnownCount()))
+        end
+        if ns.RefreshTrainingList then ns.RefreshTrainingList() end
+        return
+    end
+
+    if matched > 0 then ns.chardb.lastPetTrainer = dump end
     if newCount > 0 and not announcedTrainer then
         announcedTrainer = true
         print(string.format(L["PetTips: pet trainer synced - %d newly recorded ranks."], newCount))
@@ -245,7 +344,7 @@ function RefreshSidePanel(isBeastTraining) -- assigns the forward-declared local
             row.right:SetText("")
         else
             row.entry = item.entry
-            local name = GetSpellInfo(item.entry.spell) or "?"
+            local name = api.GetSpellName(item.entry.spell) or "?"
             if #item.entry.ability.ranks > 1 then
                 name = string.format("%s %d", name, item.entry.rank)
             end
@@ -300,6 +399,12 @@ function ns.TrainerScanDebug()
         #events > 0 and table.concat(events, ", ") or "NONE"))
     print(string.format("PetTips debug: known ranks cached=%d, beastTrainingSynced=%s",
         KnownCount(), tostring(ns.chardb.scannedBeastTraining)))
+    local probe = ns.chardb.teachProbe
+    if probe then
+        print(string.format("PetTips debug: spellbook probe: %d of %d teach spells known%s (build %s)",
+            probe.known or 0, probe.total or 0, probe.suspicious and " - SUSPICIOUS, ignored" or "",
+            tostring(probe.build)))
+    end
 
     if ns.isWarlock then
         local fams = {}
@@ -325,14 +430,18 @@ function ns.TrainerScanDebug()
     end
 
     local numServices = GetNumTrainerServices() or 0
-    print(string.format("PetTips debug: trainer window: %d services", numServices))
+    print(string.format("PetTips debug: trainer window: %d services, beast training mode=%s",
+        numServices, tostring(api.IsBeastTrainingTrainer())))
     for i = 1, math.min(numServices, 100) do
-        local name, rankText, category = GetTrainerServiceInfo(i)
+        local name, rankText, category = api.GetTrainerService(i)
         local cost = GetTrainerServiceCost and GetTrainerServiceCost(i)
-        local entry = ResolveRank(name, rankText)
-        print(string.format("  service %d: %s | %s | %s | cost=%s | spell=%s",
+        local serviceSpell = api.GetTrainerServiceSpell(i)
+        local entry = serviceSpell and (ns.ABILITY_BY_SPELL[serviceSpell]
+            or (ns.ABILITY_BY_TEACH and ns.ABILITY_BY_TEACH[serviceSpell]))
+            or ResolveRank(name, rankText)
+        print(string.format("  service %d: %s | %s | %s | cost=%s | tooltip spell=%s | resolved=%s",
             i, tostring(name), tostring(rankText), tostring(category),
-            tostring(cost), tostring(entry and entry.spell)))
+            tostring(cost), tostring(serviceSpell), tostring(entry and entry.spell)))
     end
 
     if numCrafts == 0 and numServices == 0 then
@@ -361,7 +470,7 @@ local function SyncCurrentDemon()
     for _, ability in ipairs(ns.PET_ABILITIES) do
         if ability.families[famId] then
             for _, r in ipairs(ability.ranks) do
-                if not known[r.spell] and IsSpellKnown(r.spell, true) then
+                if not known[r.spell] and api.IsPetSpellKnown(r.spell) then
                     known[r.spell] = true
                     changed = true
                 end
@@ -379,7 +488,7 @@ ns.SyncCurrentDemonDebug = SyncCurrentDemon -- force-run via /pettips debug
 -- red when it is still missing, gray when a higher rank makes it moot.
 
 local function RankLabel(entry)
-    local name = GetSpellInfo(entry.spell) or ("spell " .. entry.spell)
+    local name = api.GetSpellName(entry.spell) or ("spell " .. entry.spell)
     if #entry.ability.ranks > 1 then
         return string.format("%s %d", name, entry.rank)
     end
@@ -394,7 +503,7 @@ function ns.ClassifyGrimoire(entry)
     local curFam = ns.GetPetFamilyId()
     local isCurrent = curFam and entry.ability.families[curFam]
     local function rankKnown(r)
-        return known[r.spell] or (isCurrent and IsSpellKnown(r.spell, true))
+        return known[r.spell] or (isCurrent and api.IsPetSpellKnown(r.spell))
     end
     local petRank = 0
     for _, r in ipairs(entry.ability.ranks) do
@@ -409,11 +518,14 @@ function ns.ClassifyGrimoire(entry)
     return state, famName
 end
 
-local function HandleGrimoireTooltip(tooltip)
+local function HandleGrimoireTooltip(tooltip, data)
     if not ns.db.grimoireTooltips then return end
-    if not tooltip.GetItem then return end
-    local _, link = tooltip:GetItem()
-    local itemId = link and tonumber(link:match("item:(%d+)"))
+    -- modern path: the tooltip data carries the item ID; legacy: the link
+    local itemId = data and type(data.id) == "number" and data.id or nil
+    if not itemId and tooltip.GetItem then
+        local _, link = tooltip:GetItem()
+        itemId = link and tonumber(link:match("item:(%d+)"))
+    end
     local entry = itemId and ns.GRIMOIRE_BY_ITEM and ns.GRIMOIRE_BY_ITEM[itemId]
     if not entry then return end
 
@@ -442,7 +554,7 @@ ns.OnLogin(function()
             if entry and not ns.chardb.knownTeach[arg1] then
                 ns.chardb.knownTeach[arg1] = true
                 print(string.format(L["PetTips: your demon learned %s (rank %d)."],
-                    GetSpellInfo(arg1) or "?", entry.rank))
+                    api.GetSpellName(arg1) or "?", entry.rank))
                 if ns.RefreshTrainingList then ns.RefreshTrainingList() end
             end
             return
@@ -457,11 +569,11 @@ ns.OnLogin(function()
     local function OnCleared(tooltip) tooltip.petTipsGrimoireDone = nil end
     GameTooltip:HookScript("OnTooltipCleared", OnCleared)
     ItemRefTooltip:HookScript("OnTooltipCleared", OnCleared)
-    local function GuardedHandle(tooltip)
+    local function GuardedHandle(tooltip, data)
         if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
         if tooltip.petTipsGrimoireDone then return end
         tooltip.petTipsGrimoireDone = true
-        HandleGrimoireTooltip(tooltip)
+        HandleGrimoireTooltip(tooltip, data)
     end
     if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
         and Enum.TooltipDataType and Enum.TooltipDataType.Item then
@@ -476,9 +588,10 @@ end)
 ns.OnLogin(function()
     if ns.playerClass ~= "HUNTER" then return end
     local watcher = CreateFrame("Frame")
-    watcher:RegisterEvent("CRAFT_SHOW")
-    watcher:RegisterEvent("CRAFT_UPDATE")
-    watcher:RegisterEvent("CRAFT_CLOSE")
+    -- the craft events do not exist on Forever (registering them throws)
+    api.SafeRegisterEvent(watcher, "CRAFT_SHOW")
+    api.SafeRegisterEvent(watcher, "CRAFT_UPDATE")
+    api.SafeRegisterEvent(watcher, "CRAFT_CLOSE")
     watcher:RegisterEvent("TRAINER_SHOW")
     watcher:RegisterEvent("TRAINER_UPDATE")
     watcher:RegisterEvent("TRAINER_CLOSED")
@@ -493,15 +606,22 @@ ns.OnLogin(function()
             ScanTrainer()
         elseif event == "TRAINER_CLOSED" then
             announcedTrainer = false
+            announcedCraft = false -- Forever: Beast Training is this window
+        elseif event == "SPELLS_CHANGED" then
+            SyncTeachSpells()
         elseif IsLearnedSpellEvent(event) then
-            local entry = arg1 and ns.ABILITY_BY_SPELL[arg1]
-            if entry and not ns.chardb.knownTeach[arg1] then
-                ns.chardb.knownTeach[arg1] = true
+            local entry = arg1 and not api.IsSecret(arg1) and ResolveLearnedSpell(arg1)
+            if entry and not ns.chardb.knownTeach[entry.spell] then
+                ns.chardb.knownTeach[entry.spell] = true
                 print(string.format(L["PetTips: learned to teach %s (rank %d)."],
-                    GetSpellInfo(arg1) or "?", entry.rank))
+                    api.GetSpellName(entry.spell) or "?", entry.rank))
                 if ns.RefreshTrainingList then ns.RefreshTrainingList() end
                 if sidePanel and sidePanel:IsShown() then RefreshSidePanel(true) end
             end
         end
     end)
+    if ns.ABILITY_BY_TEACH and next(ns.ABILITY_BY_TEACH) then
+        watcher:RegisterEvent("SPELLS_CHANGED")
+        C_Timer.After(3, SyncTeachSpells) -- spell data can lag behind PLAYER_LOGIN
+    end
 end)

@@ -13,10 +13,13 @@ local buildMocks = dofile(base .. "tests/wow_mock.lua")
 -- .toc load order (locales included: they return early on enUS but must
 -- at least parse; a syntax error there fails the boot = a test failure).
 -- The data folder is the per-flavor split of the real tocs
--- (PetTips_Vanilla.toc / PetTips_TBC.toc).
-local function tocFiles(flavor)
-    return {
+-- (PetTips_Vanilla.toc / PetTips_TBC.toc / PetTips_Camelot.toc).
+-- plainToc = true mirrors PetTips.toc instead, which lists the Vanilla
+-- AND the (self-guarding) Forever data files.
+local function tocFiles(flavor, plainToc)
+    local files = {
         "Core.lua",
+        "Compat.lua",
         "Locales/deDE.lua",
         "Locales/frFR.lua",
         "Locales/esES.lua",
@@ -27,28 +30,49 @@ local function tocFiles(flavor)
         "Data/" .. flavor .. "/PetAbilitiesData.lua",
         "Data/" .. flavor .. "/TameMobsData.lua",
         "Data/" .. flavor .. "/DemonAbilitiesData.lua",
-        "KnownTraining.lua",
-        "TrainingList.lua",
-        "BeastTooltips.lua",
-        "Options.lua",
     }
+    if plainToc then
+        for i, f in ipairs(files) do
+            files[i] = (f:gsub("^Data/" .. flavor .. "/", "Data/Vanilla/"))
+        end
+        for _, f in ipairs({ "FamilyData", "FamilyInfoData", "PetAbilitiesData",
+            "TameMobsData", "DemonAbilitiesData" }) do
+            files[#files + 1] = "Data/Forever/" .. f .. ".lua"
+        end
+    end
+    for _, f in ipairs({ "KnownTraining.lua", "TameLog.lua", "TrainingList.lua",
+        "BeastTooltips.lua", "Options.lua" }) do
+        files[#files + 1] = f
+        -- the Forever book host: PetTips_Camelot.toc and PetTips.toc only
+        -- (self-guarding - inert on the Era/TBC spellbook)
+        if f == "TrainingList.lua" and (flavor == "Forever" or plainToc) then
+            files[#files + 1] = "ForeverBook.lua"
+        end
+    end
+    return files
 end
 
 -- boot("HUNTER"|"WARLOCK", setup?, flavor?) -> { ns, m, env }; setup(m)
 -- runs BEFORE the login events so tests can shape the pre-login game
--- state. flavor "Vanilla" (default) or "TBC" - picks the data files and
--- the mocked WOW_PROJECT_ID, exactly like the game picks the .toc.
-local function boot(class, setup, flavor)
+-- state. flavor "Vanilla" (default), "TBC" or "Forever" - picks the data
+-- files and the mocked client (WOW_PROJECT_ID + GetBuildInfo; Forever also
+-- swaps the whole API shape, see wow_mock ApplyForever), exactly like the
+-- game picks the .toc. plainToc = true loads the file list of PetTips.toc instead.
+local function boot(class, setup, flavor, plainToc)
     flavor = flavor or "Vanilla"
     local m = buildMocks()
     m.state.class = class
     m.WOW_PROJECT_CLASSIC = 2
     m.WOW_PROJECT_BURNING_CRUSADE_CLASSIC = 5
     m.WOW_PROJECT_ID = (flavor == "TBC") and 5 or 2
+    if flavor == "TBC" then -- TBC Anniversary 2.5.6 (the mock default is Era)
+        m.GetBuildInfo = function() return "2.5.6", "69795", "Sep 1 2026", 20506, "Version 2.5.6", "Release" end
+    end
+    if flavor == "Forever" then m.ApplyForever() end
     local ns = {}
     local env = Loader.newEnv(m)
     if setup then setup(m) end
-    Loader.loadAll(base, tocFiles(flavor), ns, env)
+    Loader.loadAll(base, tocFiles(flavor, plainToc), ns, env)
     m.Fire("ADDON_LOADED", "PetTips")
     m.Fire("PLAYER_LOGIN")
     return { ns = ns, m = m, env = env }
@@ -91,6 +115,7 @@ local SUITE_FILES = {
     "test_sections_warlock.lua",
     "test_knowntraining.lua",
     "test_beasttooltips.lua",
+    "test_forever.lua",
     "test_locales.lua",
 }
 for _, s in ipairs(SUITE_FILES) do

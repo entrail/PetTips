@@ -1,4 +1,4 @@
--- Data integrity for both generated catalogues, on BOTH flavors.
+-- Data integrity for both generated catalogues, on ALL flavors.
 -- Regenerating the data files must keep every invariant here - they are
 -- what the list/scan code silently relies on. The count pins are REAL
 -- counts (see AGENTS.md); a regen that changes them must update them
@@ -9,6 +9,7 @@ local test, assertEqual, assertTrue = T.test, T.assertEqual, T.assertTrue
 local boots = {
     Vanilla = { H = T.boot("HUNTER"), W = T.boot("WARLOCK") },
     TBC     = { H = T.boot("HUNTER", nil, "TBC"), W = T.boot("WARLOCK", nil, "TBC") },
+    Forever = { H = T.boot("HUNTER", nil, "Forever"), W = T.boot("WARLOCK", nil, "Forever") },
 }
 
 -- flavor -> pinned real counts
@@ -19,6 +20,16 @@ local PINS = {
                 demonAbilities = 16, demonRanks = 63, grimoires = 59, autos = 4 },
     TBC     = { abilities = 27, ranks = 137, mobs = 363,
                 demonAbilities = 21, demonRanks = 87, grimoires = 83, autos = 4 },
+    -- client DB build 1.60.1.70009 (tools/ForeverPetData): 21 Era abilities
+    -- + 9 new family specials + Sonic Blast (bats, server-side); beasts =
+    -- Petopia's Forever list over the Era list, filtered against the Forever
+    -- skill lines (296 still unverified) + 172 confirmed on Forever
+    -- (tools/ForeverPetData/confirmed_sources.csv: beta research 2026-09-21/29,
+    -- beastmaster.io changelog up to 2026-11-22, our own tame log), 14 of them
+    -- with an older rank nobody has confirmed on Forever yet ("partial").
+    -- Demon data is the Era set, verified rank by rank against the Forever DB.
+    Forever = { abilities = 31, ranks = 153, mobs = 468, unverified = 296, partial = 14,
+                demonAbilities = 16, demonRanks = 63, grimoires = 59, autos = 4 },
 }
 
 for flavor, B in pairs(boots) do
@@ -44,6 +55,18 @@ for flavor, B in pairs(boots) do
             end
         end
         assertEqual(ranks, pins.ranks, "rank count")
+        -- teach ids: every Forever rank carries its hunter-side teach spell
+        -- (distinct from the pet spell, unique); the other flavors none
+        for _, ability in ipairs(ns.PET_ABILITIES) do
+            for _, r in ipairs(ability.ranks) do
+                if flavor == "Forever" then
+                    assertTrue(r.teach and r.teach ~= r.spell, ability.key .. " teach id")
+                    assertEqual(ns.ABILITY_BY_TEACH[r.teach], r, ability.key .. " byTeach")
+                else
+                    assertEqual(r.teach, nil, ability.key .. " unexpected teach id")
+                end
+            end
+        end
     end)
 
     test(flavor .. " hunter data: ability families exist in PET_FAMILIES", function()
@@ -81,6 +104,21 @@ for flavor, B in pairs(boots) do
             end
         end
         assertEqual(count, pins.mobs, "mob count")
+        local unverified, partial = 0, 0
+        for npcId, mob in pairs(ns.TAME_MOBS) do
+            if mob.unverified == true then
+                unverified = unverified + 1
+            elseif mob.unverified then -- rank set: confirmed beast, some Era ranks not yet
+                partial = partial + 1
+                for spellId in pairs(mob.unverified) do
+                    local listed = false
+                    for _, s in ipairs(mob.teaches) do if s == spellId then listed = true end end
+                    assertTrue(listed, "mob " .. npcId .. " unverified rank " .. spellId .. " not taught")
+                end
+            end
+        end
+        assertEqual(unverified, pins.unverified or 0, "unverified mob count")
+        assertEqual(partial, pins.partial or 0, "confirmed mobs with unconfirmed Era ranks")
         -- back-link: every MOBS_BY_SPELL list entry teaches that spell
         for spellId, mobs in pairs(ns.MOBS_BY_SPELL) do
             for _, mob in ipairs(mobs) do
@@ -95,6 +133,12 @@ for flavor, B in pairs(boots) do
         local ns = B.H.ns
         local SPECS = { offense = true, defense = true, general = true }
         local TIERS = { S = true, A = true, B = true, C = true }
+        if flavor == "Forever" then
+            -- no verified Forever source for family modifiers/tiers yet:
+            -- the table must stay EMPTY rather than carry Era values over
+            assertEqual(next(ns.FAMILY_INFO), nil, "Forever family info must be empty")
+            return
+        end
         for id in pairs(ns.PET_FAMILIES) do
             local fam = ns.FAMILY_INFO[id]
             assertTrue(fam, "missing family info " .. id)

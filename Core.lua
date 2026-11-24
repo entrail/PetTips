@@ -5,6 +5,21 @@ ns.version = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
 -- Client flavor: the right Data/<flavor> files are picked by the per-
 -- flavor .toc; this flag is for the few runtime differences beyond data.
 ns.isTBC = WOW_PROJECT_ID == (WOW_PROJECT_BURNING_CRUSADE_CLASSIC or 5)
+-- WoW Forever (1.60.x) is the Retail engine with spell ranks. Recognized
+-- by its Interface number (16001; Classic Era 115xx, TBC Anniversary
+-- 205xx, Retail 12xxxx) or by its project id - NOT by WOW_PROJECT_MAINLINE:
+-- WOW_PROJECT_ID was 1 (MAINLINE) up to build 1.60.1.70124 and is
+-- WOW_PROJECT_CAMELOT = 18 since 70170, which once silently turned this
+-- flag off. The literal 18 survives a rename of the constant before launch.
+-- Its API differences are hidden behind ns.api (Compat.lua); this flag
+-- selects the data set and a few runtime details (tame collector and its
+-- rank-tooltip hint, settings category id, key-down casting) - the
+-- spellbook host is feature-detected in TrainingList.lua. The Data/Forever
+-- files guard themselves with it, because the plain .toc (read by a client
+-- without a matching flavor .toc) lists both data sets.
+local tocVersion = select(4, GetBuildInfo()) or 0
+ns.isForever = (tocVersion >= 16000 and tocVersion < 20000)
+    or WOW_PROJECT_ID == (WOW_PROJECT_CAMELOT or 18)
 
 -- Localization: all user-facing text goes through ns.L["English text"].
 -- English is the key and the fallback; locale files can override entries.
@@ -23,6 +38,7 @@ local defaults = {
     mobLines = 10,             -- teaching mobs listed per ability tooltip
     craftPanel = false,        -- missing-ranks panel next to Beast Training
     hiddenAbilities = {},      -- abilityKey -> true: hidden from all lists
+    tameLog = {},              -- npcId -> what a freshly tamed beast knew (TameLog.lua)
 }
 
 local function CopyDefaults(src, dst)
@@ -37,12 +53,14 @@ local function CopyDefaults(src, dst)
 end
 
 -- Factory for Data/<flavor>/PetAbilitiesData.lua. Builds ns.PET_ABILITIES
--- (ordered list of abilities with their rank entries) and
--- ns.ABILITY_BY_SPELL (spellId -> rank entry).
+-- (ordered list of abilities with their rank entries), ns.ABILITY_BY_SPELL
+-- (pet spellId -> rank entry) and ns.ABILITY_BY_TEACH (hunter-side teach
+-- spellId -> rank entry; only flavors whose data carries teach ids).
 function ns.NewPetAbilityDB()
-    local abilities, bySpell = {}, {}
+    local abilities, bySpell, byTeach = {}, {}, {}
     ns.PET_ABILITIES = abilities
     ns.ABILITY_BY_SPELL = bySpell
+    ns.ABILITY_BY_TEACH = byTeach
     local current
     local function ability(key, families)
         local famSet
@@ -53,13 +71,14 @@ function ns.NewPetAbilityDB()
         current = { key = key, families = famSet, ranks = {} }
         abilities[#abilities + 1] = current
     end
-    local function rank(spellId, rankNo, petLevel, tp, src, money)
+    local function rank(spellId, rankNo, petLevel, tp, src, money, teachId)
         local entry = {
             spell = spellId, rank = rankNo, level = petLevel,
-            tp = tp, src = src, money = money or 0, ability = current,
+            tp = tp, src = src, money = money or 0, teach = teachId, ability = current,
         }
         current.ranks[rankNo] = entry
         bySpell[spellId] = entry
+        if teachId then byTeach[teachId] = entry end
     end
     return ability, rank
 end
@@ -111,9 +130,17 @@ function ns.CanSummonDemonFamily(famId)
     local spells = DEMON_SUMMON_SPELLS[famId]
     if not spells then return false end
     for _, spellId in ipairs(spells) do
-        if IsPlayerSpell(spellId) then return true end
+        if ns.api.IsPlayerSpell(spellId) then return true end
     end
     return false
+end
+
+-- Is this beast's rank not confirmed on this client yet (the gray "?")?
+-- Either the whole beast is carried over from the Era list, or just this
+-- rank was kept from its Era entry on an otherwise confirmed beast.
+function ns.IsRankUnverified(mob, spellId)
+    local u = mob.unverified
+    return u == true or (type(u) == "table" and u[spellId] == true)
 end
 
 -- Factory for Data/<flavor>/TameMobsData.lua. Builds ns.TAME_MOBS
@@ -123,11 +150,20 @@ function ns.NewTameMobDB()
     local mobs, bySpell = {}, {}
     ns.TAME_MOBS = mobs
     ns.MOBS_BY_SPELL = bySpell
-    return function(npcId, name, familyId, minLevel, maxLevel, zone, zoneIds, teaches)
+    -- unverified (Forever data only, see TameLog.lua): true = carried over
+    -- from another flavor's list, not confirmed on this client yet; a list
+    -- of spell IDs = the beast is confirmed, only these ranks (kept from its
+    -- Era entry) are not - stored as a set, see ns.IsRankUnverified
+    return function(npcId, name, familyId, minLevel, maxLevel, zone, zoneIds, teaches, unverified)
+        if type(unverified) == "table" then
+            local set = {}
+            for _, spellId in ipairs(unverified) do set[spellId] = true end
+            unverified = set
+        end
         local m = {
             npc = npcId, name = name, family = familyId,
             minLevel = minLevel, maxLevel = maxLevel, zone = zone,
-            zoneIds = zoneIds, teaches = teaches,
+            zoneIds = zoneIds, teaches = teaches, unverified = unverified or nil,
         }
         mobs[npcId] = m
         for _, spellId in ipairs(teaches) do
@@ -158,10 +194,16 @@ end
 function ns.GetMobZoneText(m)
     local ids = m.zoneIds
     if ids and #ids > 0 then
-        local names = {}
-        for i, id in ipairs(ids) do
-            names[i] = ns.GetZoneName(id)
-            if not names[i] then return m.zone end
+        -- two IDs may name the same zone (Forever lists two UiMap rows
+        -- for Zephras Isle) - show each name once
+        local names, seen = {}, {}
+        for _, id in ipairs(ids) do
+            local name = ns.GetZoneName(id)
+            if not name then return m.zone end
+            if not seen[name] then
+                seen[name] = true
+                names[#names + 1] = name
+            end
         end
         return table.concat(names, "; ")
     end
@@ -264,6 +306,11 @@ frame:SetScript("OnEvent", function(self, event, arg1)
         CopyDefaults(defaults, PetTipsDB)
         ns.db = PetTipsDB
         PetTipsCharDB = PetTipsCharDB or {}
+        -- session counters: a SavedVariables file that always reads 1 after
+        -- several reloads proves the client wrote but never LOADED it (WoW
+        -- Forever beta bug seen 2026-09-22 - every session started empty)
+        PetTipsDB.sessions = (PetTipsDB.sessions or 0) + 1
+        PetTipsCharDB.sessions = (PetTipsCharDB.sessions or 0) + 1
         if type(PetTipsCharDB.knownTeach) ~= "table" then PetTipsCharDB.knownTeach = {} end
         if type(PetTipsCharDB.syncedDemonFams) ~= "table" then PetTipsCharDB.syncedDemonFams = {} end
         ns.chardb = PetTipsCharDB

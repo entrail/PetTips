@@ -31,6 +31,11 @@ function frameMethods.RegisterEvent(self, e)
     if e == "LEARNED_SPELL_IN_TAB" and M.WOW_PROJECT_ID == 5 then
         error('Frame:RegisterEvent(): Attempt to register unknown event "' .. e .. '"')
     end
+    -- WoW Forever (Retail engine): no craft window at all, and the old
+    -- learned-spell event name is gone there too
+    if M.__forever and (e == "LEARNED_SPELL_IN_TAB" or e:match("^CRAFT_")) then
+        error('Frame:RegisterEvent(): Attempt to register unknown event "' .. e .. '"')
+    end
     self.__events[e] = true
 end
 function frameMethods.RegisterUnitEvent(self, e) self.__events[e] = true end
@@ -46,16 +51,21 @@ function frameMethods.Show(self)
     if not self.__shown then
         self.__shown = true
         if self.__scripts.OnShow then self.__scripts.OnShow(self) end
+        for _, fn in ipairs(self.__hooks.OnShow or {}) do fn(self) end
     end
 end
 function frameMethods.Hide(self)
     if self.__shown then
         self.__shown = false
         if self.__scripts.OnHide then self.__scripts.OnHide(self) end
+        for _, fn in ipairs(self.__hooks.OnHide or {}) do fn(self) end
     end
 end
+function frameMethods.GetFrameLevel(self) return self.__level or 1 end
+function frameMethods.SetFrameLevel(self, level) self.__level = level end
 function frameMethods.SetShown(self, v) if v then self:Show() else self:Hide() end end
 function frameMethods.IsShown(self) return self.__shown end
+function frameMethods.IsVisible(self) return self.__shown end
 function frameMethods.SetChecked(self, v) self.__checked = not not v end
 function frameMethods.GetChecked(self) return self.__checked end
 function frameMethods.SetSize(self, w, h) self.__w, self.__h = w, h end
@@ -103,6 +113,12 @@ return function()
         playerSpells = {},   -- spellId -> true: IsPlayerSpell
         crafts = {},         -- { {name=, rank=, craftType=, tp=, reqLevel=}, ... }
         services = {},       -- { {name=, rank=, category=, cost=}, ... }
+        trainerType = 0,     -- Forever: C_Trainer.GetTrainerType() (3 = Pet = Beast Training)
+        petSpellbook = nil,  -- Forever: spell IDs in the pet spellbook (nil = petKnown keys)
+        spellSubtext = {},   -- spellId -> "Rank N" (GetSpellSubtext / C_Spell.GetSpellSubtext)
+        targetGUID = nil, targetName = nil, targetLevel = nil, targetFamily = nil,
+        petGUID = nil,
+        secrets = {},        -- value -> true: issecretvalue(value)
         combat = false,
         inInstance = false, instanceId = nil,
         mapId = nil, mapInfo = {}, realZones = {},
@@ -182,9 +198,17 @@ return function()
 
     -- ------------------------------------------------------ unit / player
     M.UnitClass = function() return M.state.class, M.state.class end
-    M.UnitCreatureFamily = function() return M.state.petFamily end
+    M.UnitCreatureFamily = function(u)
+        if u == "target" then return M.state.targetFamily end
+        return M.state.petFamily
+    end
+    M.UnitName = function(u)
+        if u == "target" then return M.state.targetName end
+        return "Unit"
+    end
     M.UnitExists = function(u) if u == "pet" then return M.state.petFamily ~= nil end return true end
     M.UnitLevel = function(u)
+        if u == "target" then return M.state.targetLevel or 0 end
         if u == "pet" then
             if not M.state.petFamily then return 0 end
             return M.state.petLevel
@@ -196,11 +220,16 @@ return function()
     M.GetPetTrainingPoints = function() return M.state.tpTotal, M.state.tpSpent end
     M.GetMoney = function() return M.state.money end
     M.InCombatLockdown = function() return M.state.combat end
-    M.UnitGUID = function() return nil end
+    M.UnitGUID = function(u)
+        if u == "target" then return M.state.targetGUID end
+        if u == "pet" then return M.state.petGUID end
+        return nil
+    end
 
     -- ------------------------------------------------------ spells / items
     -- deterministic fake names: "Spell<id>" / "Item<id>"
     M.GetSpellInfo = function(id) return "Spell" .. id, nil, "icon" .. id end
+    M.GetSpellSubtext = function(id) return M.state.spellSubtext[id] end
     M.GetItemInfo = function(id) return "Item" .. id end
     M.GetCoinTextureString = function(c) return tostring(c) .. "c" end
 
@@ -243,6 +272,13 @@ return function()
         table.insert(M.__prints, table.concat(parts, " "))
     end
     M.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
+    M.tinsert = table.insert
+    M.UISpecialFrames = {}
+    M.GetTime = function() return M.state.now or 0 end
+    M.time = function() return 1790000000 end
+    -- Classic Era 1.15.9, all six values the real API returns (version,
+    -- build, date, Interface, localized version, build type)
+    M.GetBuildInfo = function() return "1.15.9", "70003", "Sep 1 2026", 11509, "Version 1.15.9", "Release" end
     M.strlower = string.lower
     M.strtrim = function(s) return (tostring(s):gsub("^%s*(.-)%s*$", "%1")) end
     M.strsplit = function(sep, s)
@@ -276,6 +312,112 @@ return function()
     }
     M.CreateSettingsListSectionHeaderInitializer = function() return {} end
     M.MinimalSliderWithSteppersMixin = { Label = { Right = 1 } }
+
+    -- ------------------------------------------------------ WoW Forever
+    -- Reshapes this mock set into the Forever (Retail engine) API: the
+    -- legacy globals the addon must NOT touch there are removed, so a
+    -- direct call fails the boot exactly like it would in game, and the
+    -- C_ namespaces + the Retail-order trainer API take their place.
+    -- Same M.state drives both shapes.
+    function M.ApplyForever()
+        M.__forever = true
+        -- project constants of the live client (build 1.60.1.70170+):
+        -- Blizzard_ProjectConstants defines MAINLINE = 1 / CLASSIC = 2 on
+        -- every game type, Camelot\ProjectConstants.lua adds
+        -- WOW_PROJECT_CAMELOT = 18 and sets WOW_PROJECT_ID to it; there is
+        -- no BURNING_CRUSADE_CLASSIC. Builds up to 70124 reported ID 1.
+        M.WOW_PROJECT_MAINLINE = 1
+        M.WOW_PROJECT_CLASSIC = 2
+        M.WOW_PROJECT_BURNING_CRUSADE_CLASSIC = nil
+        M.WOW_PROJECT_CAMELOT = 18
+        M.WOW_PROJECT_ID = 18
+        for _, name in ipairs({ "GetSpellInfo", "GetSpellSubtext", "IsSpellKnown", "IsPlayerSpell",
+            "GetPetTrainingPoints", "GetCoinTextureString", "GetItemInfo",
+            "GetNumCrafts", "GetCraftInfo", "SpellBookFrame", "BOOKTYPE_PET",
+            "BOOKTYPE_SPELL", "SPELLS_PER_PAGE", "MAX_SKILLLINE_TABS",
+            "SpellBookPrevPageButton", "SpellBookNextPageButton", "SpellBookPageText" }) do
+            M[name] = nil
+        end
+        for i = 1, 8 do M["SpellBookSkillLineTab" .. i] = nil end
+        for i = 1, 12 do M["SpellButton" .. i] = nil end
+
+        M.Enum = {
+            SpellBookSpellBank = { Player = 0, Pet = 1 },
+            TrainerType = { General = 0, TalentsObsolete = 1, Tradeskills = 2, Pet = 3 },
+        }
+        M.C_Spell = {
+            GetSpellName = function(id) return "Spell" .. id end,
+            GetSpellTexture = function(id) return "icon" .. id end,
+            GetSpellSubtext = function(id) return M.state.spellSubtext[id] end,
+        }
+        M.C_SpellBook = {
+            IsSpellKnown = function(id, bank)
+                if bank == 1 then return M.state.petKnown[id] or false end
+                return M.state.playerSpells[id] or false
+            end,
+            HasPetSpells = function()
+                local list = M.state.petSpellbook
+                if not list then
+                    list = {}
+                    for id in pairs(M.state.petKnown) do list[#list + 1] = id end
+                    table.sort(list)
+                end
+                M.__petBook = list
+                return #list, "PET"
+            end,
+            GetSpellBookItemInfo = function(i, bank)
+                if bank ~= 1 then return nil end
+                local id = M.__petBook and M.__petBook[i]
+                return id and { spellID = id, itemType = 1 } or nil
+            end,
+        }
+        M.C_PetInfo = { GetPetTrainingPoints = function() return M.state.tpTotal, M.state.tpSpent end }
+        M.C_CurrencyInfo = { GetCoinTextureString = function(c) return tostring(c) .. "c" end }
+        M.C_Item = { GetItemNameByID = function(id) return "Item" .. id end }
+        M.C_Trainer = { GetTrainerType = function() return M.state.trainerType end }
+        -- service tooltip data: type Spell + the spell id (services[i].spellId)
+        M.C_TooltipInfo = { GetTrainerService = function(i)
+            local s = M.state.services[i]
+            if not (s and s.spellId) then return nil end
+            return { type = 1, id = s.spellId, lines = {} }
+        end }
+        -- Retail return order: name, category, texture, reqLevel, rankText
+        M.GetTrainerServiceInfo = function(i)
+            local s = M.state.services[i]
+            if not s then return nil end
+            return s.name, s.category or "available", "icon", s.reqLevel or 0, s.rank
+        end
+        M.issecretvalue = function(v) return M.state.secrets[v] or false end
+
+        -- the Retail-engine spellbook (Blizzard_PlayerSpells, load on demand;
+        -- a test can park M.PlayerSpellsFrame in its setup and hand it back
+        -- with ADDON_LOADED): icon tabs in a tab system along the top
+        M.C_Texture = { GetAtlasInfo = function()
+            return { file = 1, leftTexCoord = 0, rightTexCoord = 1, topTexCoord = 0, bottomTexCoord = 1 }
+        end }
+        local psf = newFrame("PlayerSpellsFrame")
+        local book = newFrame("SpellBookFrame", psf)
+        book.__shown = false
+        book.__h = 702
+        book.isMinimized = true
+        book.SetMinimized = function(self, minimized) self.isMinimized = minimized end
+        local tabSystem = newFrame("CategoryTabSystem", book)
+        tabSystem.tabs = {}
+        for i, icon in ipairs({ "iconGeneral", "iconBeastMastery", "iconPet" }) do
+            local t = newFrame(nil, tabSystem)
+            t.tabID, t.tabIcon, t.tooltipText, t.isSelected = i, icon, "Tab" .. i, i == 1
+            tabSystem.tabs[i] = t
+        end
+        tabSystem.selectedTabID = 1
+        tabSystem.SetTabVisuallySelected = function(self, tabID)
+            self.selectedTabID = tabID
+            for _, t in ipairs(self.tabs) do t.isSelected = (t.tabID == tabID) end
+        end
+        book.CategoryTabSystem = tabSystem
+        psf.SpellBookFrame = book
+        M.PlayerSpellsFrame = psf
+        M.GetBuildInfo = function() return "1.60.1", "70205", "Oct 2 2026", 16001, "Version 1.60.1", "Release" end
+    end
 
     return M
 end

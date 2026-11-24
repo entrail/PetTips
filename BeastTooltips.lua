@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local L = ns.L
+local api = ns.api
 
 -- Tooltip lines on tameable beasts that teach pet ability ranks, in the
 -- style of the Tamed addon (moody/Tamed, MIT; re-implemented against our
@@ -8,7 +9,7 @@ local L = ns.L
 -- red-orange when it is still to be learned (worth taming!).
 
 local function RankLabel(entry)
-    local name = GetSpellInfo(entry.spell) or ("spell " .. entry.spell)
+    local name = api.GetSpellName(entry.spell) or ("spell " .. entry.spell)
     if #entry.ability.ranks > 1 then
         return string.format("%s %d", name, entry.rank)
     end
@@ -45,8 +46,11 @@ ns.OnLogin(function()
         -- modern path hands us the guid in the tooltip data; legacy path
         -- (and any modern client without it) resolves via GetUnit
         local _, unit = self:GetUnit()
+        -- Forever hands out "secret" unit tokens/GUIDs in combat - nothing
+        -- can be read from those, so the tooltip stays untouched
+        if api.IsSecret(unit) then return end
         local guid = (data and data.guid) or (unit and UnitGUID(unit))
-        if not guid then return end
+        if not guid or api.IsSecret(guid) then return end
         local unitType, _, _, _, _, npcId = strsplit("-", guid)
 
         if unitType == "Pet" then
@@ -92,13 +96,17 @@ ns.OnLogin(function()
 
         if not mob then return end
 
+        -- Forever: a rank nobody has confirmed on this client yet (the beast
+        -- is carried over from the Era list, or the rank was kept from it on
+        -- a confirmed beast) gets a gray "?" (see TameLog.lua)
         for _, spellId in ipairs(mob.teaches) do
             local entry = ns.ABILITY_BY_SPELL[spellId]
             if entry then
+                local mark = ns.IsRankUnverified(mob, spellId) and " |cff909090?|r" or ""
                 if ns.chardb.knownTeach[spellId] then
-                    self:AddLine(RankLabel(entry) .. " " .. L["(known)"], 0.4, 0.9, 0.4)
+                    self:AddLine(RankLabel(entry) .. " " .. L["(known)"] .. mark, 0.4, 0.9, 0.4)
                 else
-                    self:AddLine(RankLabel(entry) .. " " .. L["(new)"], 1, 0.45, 0.35)
+                    self:AddLine(RankLabel(entry) .. " " .. L["(new)"] .. mark, 1, 0.45, 0.35)
                 end
             end
         end

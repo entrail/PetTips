@@ -1,5 +1,6 @@
 local ADDON_NAME, ns = ...
 local L = ns.L
+local api = ns.api
 
 -- WhatsTraining-style training list inside the spellbook's PET tab.
 -- A side tab (own CheckButton, SpellBookSkillLineTabTemplate) appears on
@@ -15,6 +16,12 @@ local L = ns.L
 --  * Not learned yet    - tagged (trainer) / (taming); taming rows list
 --                         teaching mobs in their tooltip
 --  * Known by pet       - gray reference section (optional)
+--
+-- WoW Forever has the Retail-engine spellbook (PlayerSpellsFrame.
+-- SpellBookFrame, load on demand): icon tabs along the TOP, paged
+-- parchment, no SpellButtons. The same list docks into that book too, in
+-- WhatsTraining's Forever style - drawn by ForeverBook.lua from the
+-- sections built here (ns.TL).
 
 local ROW_HEIGHT = 21
 local BEAST_TRAINING_SPELL = 5149
@@ -29,6 +36,12 @@ local COLORS = {
     note      = { 0.80, 0.80, 0.80 },
     tag       = { 0.65, 0.65, 0.65 },
 }
+
+-- The Era/TBC spellbook (global SpellBookFrame, skill-line tabs on its
+-- right edge) is what the list docks into there. Forever has the Retail-
+-- engine book instead - the "modern" host, drawn by ForeverBook.lua from
+-- the data this file builds (exported as ns.TL).
+local modern = not (SpellBookFrame and BOOKTYPE_PET and _G["SpellBookSkillLineTab1"])
 
 local tab, overlay, scrollFrame, scrollContent, tpText
 local rows = {} -- row pool inside scrollContent, grows as needed
@@ -61,7 +74,7 @@ end
 -- ---------------------------------------------------------------- data
 
 local function RankDisplayName(entry)
-    local name = GetSpellInfo(entry.spell) or ("spell " .. entry.spell)
+    local name = api.GetSpellName(entry.spell) or ("spell " .. entry.spell)
     if #entry.ability.ranks > 1 then
         return string.format("%s %d", name, entry.rank)
     end
@@ -90,9 +103,9 @@ local function LevelText(entry)
         local left
         if entry.src == "g" then
             if GetMoney() >= (entry.money or 0) then
-                left = GetCoinTextureString(entry.money or 0)
+                left = api.GetCoinTextureString(entry.money or 0)
             else
-                left = "|cffff2020" .. GetCoinTextureString(entry.money or 0) .. "|r"
+                left = "|cffff2020" .. api.GetCoinTextureString(entry.money or 0) .. "|r"
             end
         else
             left = L["auto"]
@@ -104,7 +117,7 @@ local function LevelText(entry)
     -- browsing another family: no pet level to compare, key off hunter level
     local petLevel = browsing and 0 or (UnitLevel("pet") or 0)
     local playerLevel = UnitLevel("player") or 0
-    local totalTP, spentTP = GetPetTrainingPoints()
+    local totalTP, spentTP = api.GetPetTrainingPoints()
     local freeTP = (totalTP or 0) - (spentTP or 0)
 
     local tpColor = (freeTP >= entry.tp) and "|cffffffff" or "|cffff2020"
@@ -126,8 +139,8 @@ end
 local function SortByLevel(list)
     table.sort(list, function(a, b)
         if a.level ~= b.level then return a.level < b.level end
-        local an = GetSpellInfo(a.spell) or ""
-        local bn = GetSpellInfo(b.spell) or ""
+        local an = api.GetSpellName(a.spell) or ""
+        local bn = api.GetSpellName(b.spell) or ""
         if an ~= bn then return an < bn end
         return a.rank < b.rank
     end)
@@ -152,7 +165,7 @@ local function BuildSectionsWarlock()
         elseif not famId or ability.families[famId] then
             local isCurrent = curFam and ability.families[curFam]
             local function rankKnown(r)
-                return knownTeach[r.spell] or (isCurrent and IsSpellKnown(r.spell, true))
+                return knownTeach[r.spell] or (isCurrent and api.IsPetSpellKnown(r.spell))
             end
             local petRank = 0
             for _, r in ipairs(ability.ranks) do
@@ -213,7 +226,7 @@ local function BuildSections()
         freeTP = math.huge
     else
         petLevel = UnitLevel("pet") or 0
-        local totalTP, spentTP = GetPetTrainingPoints()
+        local totalTP, spentTP = api.GetPetTrainingPoints()
         freeTP = (totalTP or 0) - (spentTP or 0)
     end
     local knownTeach = ns.chardb.knownTeach
@@ -224,7 +237,7 @@ local function BuildSections()
         elseif not ability.families or not famId or ability.families[famId] then
             local petRank = 0
             for _, r in ipairs(ability.ranks) do
-                if IsSpellKnown(r.spell, true) then petRank = r.rank end
+                if api.IsPetSpellKnown(r.spell) then petRank = r.rank end
             end
             -- highest rank teachable right now; lower teachable ranks are
             -- skipped (teaching them first would only waste points)
@@ -237,7 +250,7 @@ local function BuildSections()
             end
             for _, r in ipairs(ability.ranks) do
                 if r.rank <= petRank then
-                    if IsSpellKnown(r.spell, true) then
+                    if api.IsPetSpellKnown(r.spell) then
                         if knownTeach[r.spell] then
                             table.insert(sections.known, r)
                         else
@@ -265,8 +278,11 @@ local function BuildDisplayList()
     wipe(displayList)
     local sections, famId, petLevel, freeTP = BuildSections()
 
-    -- family selector is always the first row (US-13)
-    table.insert(displayList, { kind = "family" })
+    -- family selector is always the first row (US-13); the modern book
+    -- shows it in the page header instead
+    if not modern then
+        table.insert(displayList, { kind = "family" })
+    end
     if ns.isWarlock then
         -- bought grimoires are only visible while that demon is summoned;
         -- warn whenever the view includes a demon whose known-state was
@@ -297,19 +313,20 @@ local function BuildDisplayList()
             end
         end
         if searchFilter == "" then return true end
-        local name = GetSpellInfo(r.spell)
+        local name = api.GetSpellName(r.spell)
         return name and strlower(name):find(searchFilter, 1, true) ~= nil
     end
 
-    local function AddSection(headerText, list, color, rightFn, tagFn)
+    -- key = section id (the modern book colors its bands by it)
+    local function AddSection(key, headerText, list, color, rightFn, tagFn)
         local matched = {}
         for _, r in ipairs(list) do
             if Matches(r) then matched[#matched + 1] = r end
         end
         if #matched == 0 then return end
-        table.insert(displayList, { kind = "header", text = headerText })
+        table.insert(displayList, { kind = "header", key = key, text = headerText, count = #matched })
         for _, r in ipairs(matched) do
-            table.insert(displayList, { kind = "rank", entry = r, color = color,
+            table.insert(displayList, { kind = "rank", key = key, entry = r, color = color,
                 right = rightFn and rightFn(r) or nil,
                 tag = tagFn and tagFn(r) or nil })
         end
@@ -318,16 +335,16 @@ local function BuildDisplayList()
     -- right column is always the required pet level (WhatsTraining look);
     -- TP / money costs and mob lists live in the row tooltip
     if ns.isWarlock then
-        AddSection(L["Available now"], sections.now, COLORS.now, LevelText)
-        AddSection(L["Needs your level"], sections.gated, COLORS.gated, LevelText, SourceTag)
+        AddSection("now", L["Available now"], sections.now, COLORS.now, LevelText)
+        AddSection("notKnown", L["Needs your level"], sections.gated, COLORS.gated, LevelText, SourceTag)
     else
-        AddSection(L["Available now"], sections.now, COLORS.now, LevelText)
-        AddSection(L["From your current pet"], sections.fromPet, COLORS.fromPet, LevelText)
-        AddSection(L["Needs pet level / points"], sections.gated, COLORS.gated, LevelText)
-        AddSection(L["Not learned by you yet"], sections.notKnown, COLORS.notKnown, LevelText, SourceTag)
+        AddSection("now", L["Available now"], sections.now, COLORS.now, LevelText)
+        AddSection("fromPet", L["From your current pet"], sections.fromPet, COLORS.fromPet, LevelText)
+        AddSection("gated", L["Needs pet level / points"], sections.gated, COLORS.gated, LevelText)
+        AddSection("notKnown", L["Not learned by you yet"], sections.notKnown, COLORS.notKnown, LevelText, SourceTag)
     end
     if ns.db.showKnownByPet then
-        AddSection(L["Known by pet"], sections.known, COLORS.known, function()
+        AddSection("known", L["Known by pet"], sections.known, COLORS.known, function()
             return L["known"]
         end)
     end
@@ -366,11 +383,11 @@ function ns.ShowRankTooltip(entry, owner)
         if entry.src == "g" then
             -- GetItemInfo is async on the first query; the name fills in
             -- on the next hover (the call itself triggers the request)
-            local iname = entry.item and GetItemInfo(entry.item)
+            local iname = entry.item and api.GetItemName(entry.item)
             GameTooltip:AddLine(string.format(L["Grimoire: %s"], iname or "..."),
                 0.6, 0.9, 0.6, true)
             GameTooltip:AddLine(string.format(L["Costs %s at a demon trainer."],
-                GetCoinTextureString(entry.money or 0)), 0.6, 0.9, 0.6, true)
+                api.GetCoinTextureString(entry.money or 0)), 0.6, 0.9, 0.6, true)
         else
             GameTooltip:AddLine(L["Your demon knows this from the start."], 0.6, 0.9, 0.6, true)
         end
@@ -380,7 +397,7 @@ function ns.ShowRankTooltip(entry, owner)
     if entry.src == "t" or entry.src == "tw" then
         if entry.money and entry.money > 0 then
             GameTooltip:AddLine(string.format(L["Pet trainer cost: %s"],
-                GetCoinTextureString(entry.money)), 0.6, 0.9, 0.6)
+                api.GetCoinTextureString(entry.money)), 0.6, 0.9, 0.6)
         else
             GameTooltip:AddLine(L["Taught by pet trainers (learned for money)."], 0.6, 0.9, 0.6, true)
         end
@@ -408,21 +425,37 @@ function ns.ShowRankTooltip(entry, owner)
                 return a.minLevel < b.minLevel
             end)
             local max = ns.db.mobLines or 10
+            local anyUnverified = false
             for i = 1, math.min(#sorted, max) do
                 local m = sorted[i]
                 local lvl = (m.minLevel == m.maxLevel) and tostring(m.minLevel)
                     or (m.minLevel .. "-" .. m.maxLevel)
+                -- Forever: beasts carried over from the Era list (or an Era
+                -- rank kept on a confirmed beast), not yet confirmed on this
+                -- client for this rank, are marked with a gray "?"
+                local mark = ""
+                if ns.IsRankUnverified(m, entry.spell) then
+                    mark = " |cff909090?|r"
+                    anyUnverified = true
+                end
                 if inZone(m) then
-                    GameTooltip:AddLine(string.format("%s  (%s, %s)", ns.GetMobName(m), ns.GetMobZoneText(m), lvl),
+                    GameTooltip:AddLine(string.format("%s  (%s, %s)%s", ns.GetMobName(m), ns.GetMobZoneText(m), lvl, mark),
                         0.2, 1.0, 0.2)
                 else
-                    GameTooltip:AddLine(string.format("%s  (%s, %s)", ns.GetMobName(m), ns.GetMobZoneText(m), lvl),
+                    GameTooltip:AddLine(string.format("%s  (%s, %s)%s", ns.GetMobName(m), ns.GetMobZoneText(m), lvl, mark),
                         0.8, 0.8, 0.8)
                 end
             end
             if #sorted > max then
                 GameTooltip:AddLine(string.format(L["+%d more"], #sorted - max), 0.6, 0.6, 0.6)
             end
+            if anyUnverified then
+                GameTooltip:AddLine(L["? = from the Classic Era list, not yet confirmed on this client."],
+                    0.56, 0.56, 0.56, true)
+            end
+        elseif ns.isForever then
+            GameTooltip:AddLine(L["Learned by taming - no beast known yet. Tame one that uses it and PetTips records it."],
+                0.6, 0.9, 0.6, true)
         end
     end
     GameTooltip:Show()
@@ -436,34 +469,37 @@ end
 
 -- family dropdown on the selector row (modern menu API - present on Era,
 -- WhatsTraining uses it too)
-local function OpenFamilyMenu(row)
-    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
-    MenuUtil.CreateContextMenu(row, function(_, rootDescription)
-        rootDescription:CreateTitle(L["Pet family"])
-        local curFam = ns.GetPetFamilyId()
-        if curFam then
-            rootDescription:CreateRadio(
-                string.format(L["Current pet (%s)"], ns.PET_FAMILIES[curFam] or "?"),
-                function() return familySelection == nil end,
-                function() SetFamilySelection(nil) end)
-        end
-        rootDescription:CreateRadio(L["All families"],
-            function() return familySelection == "all" or (familySelection == nil and not curFam) end,
-            function() SetFamilySelection(curFam and "all" or nil) end)
-        local fams = {}
-        for id, name in pairs(ns.PET_FAMILIES) do
-            fams[#fams + 1] = { id = id, name = name }
-        end
-        table.sort(fams, function(a, b) return a.name < b.name end)
-        for _, f in ipairs(fams) do
-            rootDescription:CreateRadio(f.name,
-                function(id) return familySelection == id end,
-                function(id) SetFamilySelection(id) end, f.id)
-        end
-    end)
+local function FamilyMenu(_, rootDescription)
+    rootDescription:CreateTitle(L["Pet family"])
+    local curFam = ns.GetPetFamilyId()
+    if curFam then
+        rootDescription:CreateRadio(
+            string.format(L["Current pet (%s)"], ns.PET_FAMILIES[curFam] or "?"),
+            function() return familySelection == nil end,
+            function() SetFamilySelection(nil) end)
+    end
+    rootDescription:CreateRadio(L["All families"],
+        function() return familySelection == "all" or (familySelection == nil and not curFam) end,
+        function() SetFamilySelection(curFam and "all" or nil) end)
+    local fams = {}
+    for id, name in pairs(ns.PET_FAMILIES) do
+        fams[#fams + 1] = { id = id, name = name }
+    end
+    table.sort(fams, function(a, b) return a.name < b.name end)
+    for _, f in ipairs(fams) do
+        rootDescription:CreateRadio(f.name,
+            function(id) return familySelection == id end,
+            function(id) SetFamilySelection(id) end, f.id)
+    end
 end
 
-local function FamilyRowLabel()
+local function OpenFamilyMenu(row)
+    if not (MenuUtil and MenuUtil.CreateContextMenu) then return end
+    MenuUtil.CreateContextMenu(row, FamilyMenu)
+end
+
+-- "Current pet (Wolf)" / "All families" / "Bear"
+local function FamilyLabel()
     local label
     if familySelection == "all" then
         label = L["All families"]
@@ -477,8 +513,12 @@ local function FamilyRowLabel()
             label = L["All families"]
         end
     end
+    return label
+end
+
+local function FamilyRowLabel()
     return string.format("%s %s |TInterface\\ChatFrame\\ChatFrameExpandArrow:12|t",
-        L["Family:"], label)
+        L["Family:"], FamilyLabel())
 end
 
 local function CreateRow(index)
@@ -545,7 +585,7 @@ local function RefreshRows()
                 row.right:SetText("")
             else
                 local entry = item.entry
-                local _, _, icon = GetSpellInfo(entry.spell)
+                local icon = api.GetSpellIcon(entry.spell)
                 row.icon:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
                 local name = RankDisplayName(entry)
                 if item.tag then
@@ -574,17 +614,40 @@ local function RefreshRows()
             end
         end
         if total > 0 then
-            tpText:SetText(string.format(L["Grimoires to buy: %s"], GetCoinTextureString(total)))
+            tpText:SetText(string.format(L["Grimoires to buy: %s"], api.GetCoinTextureString(total)))
         else
             tpText:SetText("")
         end
     else
-        local totalTP, spentTP = GetPetTrainingPoints()
+        local totalTP, spentTP = api.GetPetTrainingPoints()
         tpText:SetText(string.format(L["%d TP unspent"], (totalTP or 0) - (spentTP or 0)))
     end
 end
 
+-- "12 TP unspent" (hunter) / "Grimoires to buy: 1g 20s" (warlock, "" when
+-- nothing is buyable) - computed from the current displayList
+local function StatusText()
+    if ns.isWarlock then
+        local total = 0
+        for _, item in ipairs(displayList) do
+            if item.kind == "rank" and item.key == "now" then
+                total = total + (item.entry.money or 0)
+            end
+        end
+        if total > 0 then
+            return string.format(L["Grimoires to buy: %s"], api.GetCoinTextureString(total))
+        end
+        return ""
+    end
+    local totalTP, spentTP = api.GetPetTrainingPoints()
+    return string.format(L["%d TP unspent"], (totalTP or 0) - (spentTP or 0))
+end
+
 function ns.RefreshTrainingList()
+    if modern then
+        if ns.ForeverBook then ns.ForeverBook.Refresh() end
+        return
+    end
     if overlay and overlay:IsShown() then
         BuildDisplayList()
         RefreshRows()
@@ -617,17 +680,19 @@ end
 -- quests don't know the spell yet - no popup for them, the note suffices.
 
 local syncPopup, syncPopupDismissed
+local syncPopupParent -- the view frame the popup docks to (Era: overlay, Forever: the book overlay)
 
 local function ShowSyncPopup()
-    if InCombatLockdown() or not IsPlayerSpell(BEAST_TRAINING_SPELL) then return end
+    if InCombatLockdown() or not api.IsPlayerSpell(BEAST_TRAINING_SPELL) then return end
     if not syncPopup then
+        local parent = syncPopupParent or overlay
         -- docked to the right edge of the book (clear of the side tabs),
         -- same dark backdrop as the addon's other panels - present but
         -- not a modal in the middle of the screen. Parented to the
         -- overlay, so it comes and goes with the training view.
-        syncPopup = CreateFrame("Frame", "PetTipsSyncPopup", overlay, "BackdropTemplate")
+        syncPopup = CreateFrame("Frame", "PetTipsSyncPopup", parent, "BackdropTemplate")
         syncPopup:SetSize(240, 136)
-        syncPopup:SetPoint("TOPLEFT", overlay, "TOPRIGHT", 8, -45)
+        syncPopup:SetPoint("TOPLEFT", parent, "TOPRIGHT", 8, -45)
         syncPopup:SetFrameStrata("DIALOG")
         syncPopup:SetBackdrop({
             bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -649,7 +714,7 @@ local function ShowSyncPopup()
         text:SetJustifyH("LEFT")
         text:SetText(L["PetTips can't see which ranks you can already teach - the game only reveals that in the Beast Training window. Click the button; the list fills in by itself."])
 
-        local spellName = GetSpellInfo(BEAST_TRAINING_SPELL)
+        local spellName = api.GetSpellName(BEAST_TRAINING_SPELL)
         local cast = CreateFrame("Button", "PetTipsSyncCastButton", syncPopup,
             "SecureActionButtonTemplate,UIPanelButtonTemplate")
         cast:SetSize(146, 22)
@@ -657,7 +722,12 @@ local function ShowSyncPopup()
         cast:SetText(spellName or "?")
         cast:SetAttribute("type", "spell")
         cast:SetAttribute("spell", spellName)
-        cast:RegisterForClicks("AnyUp")
+        -- the Retail engine fires secure actions on key DOWN by default
+        if ns.isForever then
+            cast:RegisterForClicks("AnyUp", "AnyDown")
+        else
+            cast:RegisterForClicks("AnyUp")
+        end
 
         local later = CreateFrame("Button", nil, syncPopup, "UIPanelButtonTemplate")
         later:SetSize(70, 22)
@@ -670,7 +740,10 @@ local function ShowSyncPopup()
 
         -- craft window opening = mission accomplished; the popup's own
         -- frame is insecure, so hiding it is legal even in combat
-        syncPopup:RegisterEvent("CRAFT_SHOW")
+        -- (Forever: no craft window - Beast Training opens the trainer frame)
+        if not api.SafeRegisterEvent(syncPopup, "CRAFT_SHOW") then
+            syncPopup:RegisterEvent("TRAINER_SHOW")
+        end
         syncPopup:SetScript("OnEvent", function(self) self:Hide() end)
     end
     syncPopup:Show()
@@ -690,6 +763,7 @@ ns.ShowBeastSyncPopup = function()
 end
 
 -- ---------------------------------------------------------------- overlay
+-- (Era/TBC docked host only - Forever is ForeverBook.lua)
 
 local hiddenByUs = false
 
@@ -736,7 +810,16 @@ local function ApplyOverlay()
     end
 end
 
-local function CreateUI()
+-- /pettips show (Forever): open the list, or arm it for the next time the
+-- book opens - the addon never opens the book itself (see ForeverBook.lua).
+-- false = not handled here (Era/TBC: the command opens the settings).
+function ns.ShowTrainingList()
+    if not modern or not ns.db.enableList or not ns.ForeverBook then return false end
+    return ns.ForeverBook.ShowList()
+end
+
+-- Era/TBC host: side tab on the spellbook + an overlay covering the book
+local function CreateDockedHost()
     tab = CreateFrame("CheckButton", "PetTipsSpellbookTab", SpellBookFrame,
         "SpellBookSkillLineTabTemplate")
     -- fixed slot 6, directly above WhatsTraining's "?" (slot 7, spell mode
@@ -744,7 +827,7 @@ local function CreateUI()
     -- when switching between the spellbook and the pet book
     tab:SetPoint("TOPLEFT", _G["SpellBookSkillLineTab" .. (MAX_SKILLLINE_TABS - 2)], "TOPLEFT", 0, 0)
     -- warlocks get the Summon Imp icon (there is no Beast Training spell)
-    local icon = select(3, GetSpellInfo(ns.isWarlock and 688 or BEAST_TRAINING_SPELL))
+    local icon = api.GetSpellIcon(ns.isWarlock and 688 or BEAST_TRAINING_SPELL)
     tab:SetNormalTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
     tab.tooltip = ns.isWarlock and L["Demon Training"] or L["Pet Training"]
     tab:Hide()
@@ -783,7 +866,14 @@ local function CreateUI()
     overlay:SetAllPoints(SpellBookFrame)
     overlay:SetFrameStrata("HIGH")
     overlay:Hide()
+end
 
+local function CreateUI()
+    -- WhatsTraining's geometry: straight onto the 384x512 book art
+    CreateDockedHost()
+    local content, listParent = overlay, overlay
+
+    -- full-book dark art (MIT-licensed textures from WhatsTraining)
     local leftBG = overlay:CreateTexture(nil, "ARTWORK")
     leftBG:SetTexture("Interface\\AddOns\\PetTips\\Textures\\left")
     leftBG:SetSize(256, 512)
@@ -792,11 +882,18 @@ local function CreateUI()
     rightBG:SetTexture("Interface\\AddOns\\PetTips\\Textures\\right")
     rightBG:SetSize(128, 512)
     rightBG:SetPoint("TOPRIGHT", overlay)
+    local place = {
+        search = { 81, -34 }, searchWidth = 124, -- same spot as WhatsTraining's
+        tp = { -70, -64 }, tpColor = { 1, 0.82, 0 },
+        -- inset exactly like WhatsTraining: 26px left, 65px right margin -
+        -- the template's scrollbar lands inside the dark right margin
+        scrollTL = { 26, -75 }, scrollBR = { -65, 81 }, rowsWidth = 293,
+        popup = { -39, -60 },
+    }
 
-    -- search box, same spot as WhatsTraining's
-    local search = CreateFrame("EditBox", "PetTipsSearchBox", overlay, "SearchBoxTemplate")
-    search:SetSize(124, 32)
-    search:SetPoint("TOPLEFT", overlay, "TOPLEFT", 81, -34)
+    local search = CreateFrame("EditBox", "PetTipsSearchBox", content, "SearchBoxTemplate")
+    search:SetSize(place.searchWidth, 32)
+    search:SetPoint("TOPLEFT", content, "TOPLEFT", place.search[1], place.search[2])
     search:SetAutoFocus(false)
     search:SetScript("OnTextChanged", function(self)
         SearchBoxTemplate_OnTextChanged(self)
@@ -810,7 +907,7 @@ local function CreateUI()
 
     -- source filter toggles right of the search box; active = held down
     local function CreateFilterButton(key, label, anchorTo, gap)
-        local btn = CreateFrame("Button", nil, overlay, "UIPanelButtonTemplate")
+        local btn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
         btn:SetSize(58, 22)
         btn:SetPoint("LEFT", anchorTo, "RIGHT", gap, 0)
         btn:SetText(label)
@@ -836,7 +933,7 @@ local function CreateUI()
     -- Persisted account-wide in PetTipsDB.hiddenAbilities.
     local hidePopup, popupChecks, hideButton
     local function BuildHidePopup()
-        hidePopup = CreateFrame("Frame", "PetTipsAbilityFilter", overlay, "BackdropTemplate")
+        hidePopup = CreateFrame("Frame", "PetTipsAbilityFilter", content, "BackdropTemplate")
         hidePopup:SetFrameStrata("DIALOG")
         hidePopup:SetBackdrop({
             bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
@@ -855,8 +952,8 @@ local function CreateUI()
             entries[#entries + 1] = ability
         end
         table.sort(entries, function(a, b)
-            return (GetSpellInfo(a.ranks[1].spell) or a.key)
-                < (GetSpellInfo(b.ranks[1].spell) or b.key)
+            return (api.GetSpellName(a.ranks[1].spell) or a.key)
+                < (api.GetSpellName(b.ranks[1].spell) or b.key)
         end)
 
         local rowH, colW, perCol = 21, 150, math.ceil(#entries / 2)
@@ -873,12 +970,12 @@ local function CreateUI()
             icon:SetSize(15, 15)
             icon:SetPoint("LEFT", cb, "RIGHT", 1, 0)
             icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-            icon:SetTexture(select(3, GetSpellInfo(ability.ranks[1].spell))
+            icon:SetTexture(api.GetSpellIcon(ability.ranks[1].spell)
                 or "Interface\\Icons\\INV_Misc_QuestionMark")
 
             local label = hidePopup:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
             label:SetPoint("LEFT", icon, "RIGHT", 3, 0)
-            label:SetText(GetSpellInfo(ability.ranks[1].spell) or ability.key)
+            label:SetText(api.GetSpellName(ability.ranks[1].spell) or ability.key)
             label:SetTextColor(0.9, 0.9, 0.9)
 
             cb:SetScript("OnClick", function(self)
@@ -890,14 +987,14 @@ local function CreateUI()
             popupChecks[#popupChecks + 1] = cb
         end
         hidePopup:SetSize(8 + 2 * colW + 8, 24 + perCol * rowH + 10)
-        -- anchored to the overlay, not the cog button: the cog sits far
-        -- left on warlocks (no filter buttons), which would push a
+        -- anchored to the content area, not the cog button: the cog sits
+        -- far left on warlocks (no filter buttons), which would push a
         -- right-anchored popup out of the book's left edge
-        hidePopup:SetPoint("TOPRIGHT", overlay, "TOPRIGHT", -39, -60)
+        hidePopup:SetPoint("TOPRIGHT", content, "TOPRIGHT", place.popup[1], place.popup[2])
         hidePopup:Hide()
     end
 
-    hideButton = CreateFrame("Button", nil, overlay)
+    hideButton = CreateFrame("Button", nil, content)
     hideButton:SetSize(22, 22)
     hideButton:SetPoint("LEFT", filterAnchor, "RIGHT", 2, 0)
     hideButton:SetNormalTexture("Interface\\Buttons\\UI-OptionsButton")
@@ -922,20 +1019,18 @@ local function CreateUI()
         end
     end)
 
-    tpText = overlay:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    tpText:SetPoint("TOPRIGHT", -70, -64)
-    tpText:SetTextColor(1, 0.82, 0)
+    tpText = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    tpText:SetPoint("TOPRIGHT", place.tp[1], place.tp[2])
+    tpText:SetTextColor(unpack(place.tpColor))
 
-    -- smooth-scrolling list (real ScrollFrame, no paging), inset exactly
-    -- like WhatsTraining: 26px left, 65px right margin - the template's
-    -- scrollbar lands inside the dark right margin of the art
-    scrollFrame = CreateFrame("ScrollFrame", "PetTipsTrainingScrollFrame", overlay,
+    -- smooth-scrolling list (real ScrollFrame, no paging)
+    scrollFrame = CreateFrame("ScrollFrame", "PetTipsTrainingScrollFrame", listParent,
         "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", 26, -75)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -65, 81)
+    scrollFrame:SetPoint("TOPLEFT", place.scrollTL[1], place.scrollTL[2])
+    scrollFrame:SetPoint("BOTTOMRIGHT", place.scrollBR[1], place.scrollBR[2])
 
     scrollContent = CreateFrame("Frame", nil, scrollFrame)
-    scrollContent:SetSize(293, 1)
+    scrollContent:SetSize(place.rowsWidth, 1)
     scrollFrame:SetScrollChild(scrollContent)
 
     overlay:SetScript("OnShow", function(self)
@@ -987,6 +1082,10 @@ end
 
 -- Options toggle: hide everything immediately when disabled.
 function ns.UpdateTrainingTab()
+    if modern then
+        if ns.ForeverBook then ns.ForeverBook.UpdateTab() end
+        return
+    end
     if not tab then return end
     if not ns.db.enableList then
         tab:SetChecked(false)
@@ -997,7 +1096,55 @@ function ns.UpdateTrainingTab()
     ApplyOverlay()
 end
 
+-- What ForeverBook.lua (the Forever host) draws from: the section data,
+-- the filters and the family selection all stay owned by this file.
+ns.TL = {
+    BuildDisplayList = function()
+        BuildDisplayList()
+        return displayList
+    end,
+    StatusText = StatusText,
+    RankName = function(entry) return api.GetSpellName(entry.spell) or ("spell " .. entry.spell) end,
+    SourceTag = SourceTag,
+    EffectiveFamily = EffectiveFamily,
+    FamilyLabel = FamilyLabel,
+    FamilyMenu = FamilyMenu,
+    sourceFilter = sourceFilter,
+    SetSearch = function(text)
+        text = strlower(strtrim(text or ""))
+        if text == searchFilter then return false end
+        searchFilter = text
+        return true
+    end,
+    -- view closed / pet changed: the family selection lives only while the
+    -- view is open (US-13), and a sticky one would hide a new pet's list
+    ResetFamily = function() familySelection = nil end,
+    MaybeShowSyncPopup = function(parent)
+        syncPopupParent = parent
+        MaybeShowSyncPopup()
+    end,
+    HideSyncPopup = function() if syncPopup then syncPopup:Hide() end end,
+}
+
 ns.OnLogin(function()
     if ns.playerClass ~= "HUNTER" and ns.playerClass ~= "WARLOCK" then return end
-    CreateUI()
+    if not modern then
+        CreateUI()
+        return
+    end
+    -- the modern book is a load-on-demand Blizzard addon: dock once it exists
+    local function TryCreate()
+        if not ns.ForeverBook then return true end -- file missing: nothing to dock
+        local book = PlayerSpellsFrame and PlayerSpellsFrame.SpellBookFrame
+        if not (book and book.CategoryTabSystem) then return false end
+        ns.ForeverBook.Create(book)
+        return true
+    end
+    if not TryCreate() then
+        local loader = CreateFrame("Frame")
+        loader:RegisterEvent("ADDON_LOADED")
+        loader:SetScript("OnEvent", function(self)
+            if TryCreate() then self:UnregisterAllEvents() end
+        end)
+    end
 end)

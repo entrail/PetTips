@@ -6,7 +6,9 @@ local L = ns.L
 
 ns.OnInit(function()
     local category, layout = Settings.RegisterVerticalLayoutCategory(ADDON_NAME)
-    category.ID = ADDON_NAME
+    -- Forever builds the category inside its secure settings delegate:
+    -- leave the generated id alone there instead of tainting it
+    if not ns.isForever then category.ID = ADDON_NAME end
     ns.settingsCategory = category
 
     local function AddHeader(text)
@@ -148,6 +150,13 @@ SlashCmdList.PETTIPS = function(msg)
     elseif cmd == "list" then
         if ns.TrainingListDebug then ns.TrainingListDebug() end
         return
+    elseif cmd == "tamelog" then
+        if ns.TameLogDebug then ns.TameLogDebug() end
+        return
+    elseif cmd == "show" then
+        -- Forever: jump to the list in the spellbook (or arm it for the next open)
+        if ns.ShowTrainingList and ns.ShowTrainingList() then return end
     end
-    Settings.OpenToCategory(ADDON_NAME)
+    local category = ns.settingsCategory
+    Settings.OpenToCategory((category and category.GetID and category:GetID()) or ADDON_NAME)
 end
